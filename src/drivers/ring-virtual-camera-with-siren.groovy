@@ -20,6 +20,7 @@
  *  2019-12-20: Started tinkering with getting thumbnails
  *  2020-02-29: Changed namespace
  *  2020-05-19: Snapshot preference
+ *  2022-01-29: Connection state
  */
 
 metadata {
@@ -35,9 +36,12 @@ metadata {
 
     command "getDings"
     //command "test"
+      
+    attribute "connection", "string"
   }
 
   preferences {
+    input name: "deviceStatusPollingEnable", type: "bool", title: "Enable polling for device status", defaultValue: true
     input name: "snapshotPolling", type: "bool", title: "Enable polling for thumbnail snapshots on this device", defaultValue: false
     input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: false
     input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
@@ -72,6 +76,20 @@ def poll() {
 def refresh() {
   logDebug "refresh()"
   parent.simpleRequest("refresh", [dni: device.deviceNetworkId])
+  scheduleDevicePolling()
+}
+
+def pollDeviceStatus() {
+  logTrace "pollDeviceStatus()"
+  refresh()
+  scheduleDevicePolling()
+}
+
+def scheduleDevicePolling() {
+  unschedule(pollDeviceStatus)
+  if (deviceStatusPollingEnable) {
+    runIn(1800, pollDeviceStatus)  //time in seconds
+  }
 }
 
 def getDings() {
@@ -84,8 +102,13 @@ def test() {
   parent.simpleRequest("snapshot-image-tmp", [dni: device.deviceNetworkId])
 }
 
+def installed() {
+  pollDeviceStatus()
+}
+
 def updated() {
   parent.snapshotOption(device.deviceNetworkId, snapshotPolling)
+  pollDeviceStatus()
 }
 
 def off(boolean modifyAlarm = true) {
@@ -133,7 +156,11 @@ def childParse(type, params) {
 
 private handleRefresh(json) {
   logDebug "handleRefresh(${json.description})"
-
+  
+  if (json.alerts != null && json.alerts.connection != null) {
+    checkChanged("connection", json.alerts.connection) // devices seem to be considered offline after 20 minutes
+  }
+    
   if (json.battery_life != null) {
     checkChanged("battery", json.battery_life)
   }

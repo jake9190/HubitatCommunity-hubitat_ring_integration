@@ -20,6 +20,7 @@
  *  2019-11-18: Differentiated between ring and motion events
  *  2020-02-29: Changed namespace
  *  2020-05-19: Snapshot preference
+ *  2022-01-29: Connection state
  */
 
 metadata {
@@ -34,9 +35,12 @@ metadata {
     capability "PushableButton"
 
     command "getDings"
+      
+    attribute "connection", "string"
   }
 
   preferences {
+    input name: "deviceStatusPollingEnable", type: "bool", title: "Enable polling for device status", defaultValue: true
     input name: "snapshotPolling", type: "bool", title: "Enable polling for thumbnail snapshots on this device", defaultValue: false
     input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: false
     input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
@@ -60,9 +64,14 @@ def configure() {
 
 }
 
+def installed() {
+  pollDeviceStatus()
+}
+
 def updated() {
   checkChanged("numberOfButtons", 1)
   parent.snapshotOption(device.deviceNetworkId, snapshotPolling)
+  pollDeviceStatus()
 }
 
 def parse(String description) {
@@ -76,6 +85,7 @@ def poll() {
 def refresh() {
   logDebug "refresh()"
   parent.simpleRequest("refresh", [dni: device.deviceNetworkId])
+  scheduleDevicePolling()
 }
 
 def getDings() {
@@ -101,8 +111,24 @@ def childParse(type, params) {
   }
 }
 
+def pollDeviceStatus() {
+  logTrace "pollDeviceStatus()"
+  scheduleDevicePolling()
+}
+
+def scheduleDevicePolling() {
+  unschedule(pollDeviceStatus)
+  if (deviceStatusPollingEnable) {
+    runIn(1800, pollDeviceStatus)  //time in seconds
+  }
+}
+
 private handleRefresh(json) {
   logDebug "handleRefresh(${json.description})"
+    
+  if (json.alerts != null && json.alerts.connection != null) {
+    checkChanged("connection", json.alerts.connection) // devices seem to be considered offline after 20 minutes
+  }
 
   if (json.battery_life != null && !["jbox_v1", "lpd_v1", "lpd_v2"].contains(device.getDataValue("kind"))) {
     checkChanged("battery", json.battery_life)

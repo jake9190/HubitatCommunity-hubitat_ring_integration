@@ -18,6 +18,7 @@
  *  2019-11-15: Import URL
  *  2020-02-29: Changed namespace
  *  2020-05-19: Snapshot preference
+ *  2022-01-29: Connection state
  */
 
 import groovy.transform.Field
@@ -34,12 +35,14 @@ metadata {
     capability "MotionSensor"
 
     attribute "lastActivity", "string"
+    attribute "connection", "string"
 
     command "alarmOff"
     command "getDings"
   }
 
   preferences {
+    input name: "deviceStatusPollingEnable", type: "bool", title: "Enable polling for device status", defaultValue: true
     input name: "lightPolling", type: "bool", title: "Enable polling for light status on this device", defaultValue: false
     input name: "lightInterval", type: "number", range: 10..600, title: "Number of seconds in between light polls", defaultValue: 15
     input name: "snapshotPolling", type: "bool", title: "Enable polling for thumbnail snapshots on this device", defaultValue: false
@@ -80,6 +83,24 @@ def poll() {
 def refresh() {
   logDebug "refresh()"
   parent.simpleRequest("refresh", [dni: device.deviceNetworkId])
+  scheduleDevicePolling()
+}
+
+def installed() {
+  pollDeviceStatus()
+}
+
+def pollDeviceStatus() {
+  logTrace "pollDeviceStatus()"
+  refresh()
+  scheduleDevicePolling()
+}
+
+def scheduleDevicePolling() {
+  unschedule(pollDeviceStatus)
+  if (deviceStatusPollingEnable) {
+    runIn(1800, pollDeviceStatus)  //time in seconds
+  }
 }
 
 def getDings() {
@@ -105,6 +126,7 @@ def pollLight() {
 def updated() {
   setupPolling()
   parent.snapshotOption(device.deviceNetworkId, snapshotPolling)
+  scheduleDevicePolling()
 }
 
 def on() {
@@ -213,6 +235,10 @@ private handleRefresh(json) {
   if (!json.led_status) {
     log.warn "No status?"
     return
+  }
+    
+  if (json.alerts != null && json.alerts.connection != null) {
+    checkChanged("connection", json.alerts.connection) // devices seem to be considered offline after 20 minutes
   }
 
   if (json.led_status) {
