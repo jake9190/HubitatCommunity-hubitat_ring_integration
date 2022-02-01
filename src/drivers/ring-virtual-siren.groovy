@@ -74,7 +74,7 @@ void setValues(final Map deviceInfo) {
     checkChanged("battery", deviceInfo.batteryLevel, "%")
   }
 
- // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
+  // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
   for (final String key in ["commStatus", "lastCheckin", "tamper"]) {
     final keyVal = deviceInfo[key]
     if (keyVal != null) {

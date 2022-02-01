@@ -929,7 +929,7 @@ void createDevice(final Map deviceInfo) {
     catch (e) {
       if (e.toString().replace(mappedDeviceTypeName, "") ==
         "com.hubitat.app.exception.UnknownDeviceTypeException: Device type '' in namespace 'ring-hubitat-codahq' not found") {
-        log.error '<b style="color: red;">The "' + mappedDeviceTypeName + '" driver was not found and needs to be installed.</b>\r\n'
+        log.error '<b style="color: red;">The "' + mappedDeviceTypeName + '" driver was not found and needs to be installed. NOTE: If you installed this using HPM, you can fix this by going to "Update" in HPM and selecting the optional drivers you need.</b>\r\n'
       }
       else {
         log.error "Error adding device: ${e}"
