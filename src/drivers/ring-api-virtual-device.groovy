@@ -730,8 +730,8 @@ def parse(String description) {
                                                           'networkConnection', 'manufacturerName', 'nextExpectedWakeup', 'zid']
 
 @Field final static List<String> deviceJsonDeviceKeys = ['batteryBackup', 'chirps', 'co', 'faulted', 'flood', 'freeze', 'groupMembers',
-                                                         'locked', 'mode', 'networks', 'networkConnection', 'powerSave', 'sensitivity',
-                                                         'status', 'smoke', 'testMode', 'version']
+                                                         'lastConnectivityCheckError', 'locked', 'mode', 'networks', 'networkConnection',
+                                                         'powerSave', 'sensitivity', 'status', 'smoke', 'testMode', 'version']
 
 @Field final static HashSet<String> deviceJsonGeneral
 

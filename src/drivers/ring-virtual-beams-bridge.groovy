@@ -59,6 +59,14 @@ void setValues(final Map deviceInfo) {
   logDebug "setValues(deviceInfo)"
   logTrace "deviceInfo: ${deviceInfo}"
 
+  if (deviceInfo.containsKey('lastConnectivityCheckError')) {
+    if (deviceInfo.lastConnectivityCheckError) {
+      log.error "Ring connectivity error: ${deviceInfo.lastConnectivityCheckError}"
+    } else {
+      log.info "Ring connectivity error resolved."
+    }
+  }
+
   if (deviceInfo.networks != null) {
     final Map networks = deviceInfo.networks
 

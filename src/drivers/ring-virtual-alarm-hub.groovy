@@ -281,6 +281,14 @@ void setValues(final Map deviceInfo) {
     checkChanged("fireAlarm", alarmInfo == "fire-alarm" ? "active" : "inactive")
   }
 
+  if (deviceInfo.containsKey('lastConnectivityCheckError')) {
+    if (deviceInfo.lastConnectivityCheckError) {
+      log.error "Ring connectivity error: ${deviceInfo.lastConnectivityCheckError}"
+    } else {
+      log.info "Ring connectivity error resolved."
+    }
+  }
+
   if (deviceInfo.transition != null) {
     checkChanged("exitDelay", deviceInfo.transition == "exit" ? "active" : "inactive")
     sendEvent(name: "countdownTimeLeft", value: deviceInfo.timeLeft)
