@@ -13,13 +13,16 @@
  *  for the specific language governing permissions and limitations under the License.
  */
 
+/**
+ * This device holds the websocket connection that controls the alarm hub and/or the lighting bridge
+ */
+
 import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.transform.Field
 
 metadata {
   definition(name: "Ring API Virtual Device", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    description: "This device holds the websocket connection that controls the alarm hub and/or the lighting bridge",
     importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-api-virtual-device.groovy") {
     capability "Actuator"
     capability "Initialize"
@@ -34,6 +37,11 @@ metadata {
 
     //command "testCommand"
     command "setMode", [[name: "Set Mode*", type: "ENUM", description: "Set the Location's mode", constraints: ["Disarmed", "Home", "Away"]]]
+
+    command "setDebugImpulseTypeExcludeList", [[name: "Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of impulse types to skip logging. NOTE: 'command.complete' and 'error.set-info' cannot be excluded here. Use the type-specific filtering instead"]]
+    command "setDebugImpulseCommandCompleteExcludeList", [[name: "Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of command.complete commandType types to skip logging"]]
+    command "setDebugImpulseErrorSetInfoExcludeList", [[name: "Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of error.set-info commandType types to skip logging"]]
+    command "setDebugDeviceTypeIncludeList", [[name: "Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of device types to log"]]
   }
 
   preferences {
@@ -41,6 +49,13 @@ metadata {
     input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: true
     input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
     input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
+
+    input name: "enableDebugPreferences", type: "bool", title: "Enable extra preferences that help with debugging", defaultValue: false
+
+    if (enableDebugPreferences) {
+      input name: "debugImpulseType", type: "bool", title: "DEBUG: Log msgs received that have impulses. Use setDebugImpulseTypeExcludeList to exclude impulse values", defaultValue: false
+      input name: "debugDeviceType", type: "bool", title: "DEBUG: Log msgs received that have specific device types. By default none will be logged. Use setDebugImpulseTypeIncludeList to include device type values", defaultValue: false
+    }
   }
 }
 
@@ -70,7 +85,6 @@ def testCommand() {
   //zeroEpoch.setTimeInMillis(0)
   //println zeroEpoch.format("dd-MMM-yyyy HH:mm:ss zzz")
   //https://currentmillis.com/
-
 }
 
 def setMode(mode) {
@@ -84,6 +98,19 @@ def setMode(mode) {
     log.error msg
     sendEvent(name: "Invalid Command", value: msg)
   }
+}
+
+void setDebugImpulseTypeExcludeList(excludeList) {
+  state.debugImpulseTypeExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as HashSet<String>
+}
+void setDebugImpulseCommandCompleteExcludeList(excludeList) {
+  state.debugImpulseCommandCompleteExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as HashSet<String>
+}
+void setDebugImpulseErrorSetInfoExcludeList(excludeList) {
+  state.debugImpulseErrorSetInfoExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as HashSet<String>
+}
+void setDebugDeviceTypeIncludeList(includeList) {
+  state.debugDeviceTypeIncludeList = includeList?.replaceAll("\\s","")?.split(",") as HashSet<String>
 }
 
 def initialize() {
@@ -109,7 +136,9 @@ def initializeWatchdog() {
 }
 
 def updated() {
+  // Clean up some things from old versions
   state.remove("updatedDate")
+
   initialize()
 }
 
@@ -686,7 +715,7 @@ def parse(String description) {
   }
 }
 
-@Field final static List<String> deviceJsonGeneralKeys = ['acStatus', 'batteryLevel', 'batteryStatus', 'componentDevices', 'deviceType',
+@Field final static List<String> deviceJsonGeneralKeys = ['acStatus', 'batteryLevel', 'batteryStatus', 'componentDevices',
                                                           'manufacturerName', 'nextExpectedWakeup', 'zid']
 
 @Field final static List<String> deviceJsonDeviceKeys = ['batteryBackup', 'chirps', 'co', 'faulted', 'flood', 'freeze', 'groupMembers',
@@ -698,6 +727,14 @@ def parse(String description) {
 List<Map> extractDeviceInfos(final Map json) {
   logDebug "extractDeviceInfos(json)"
   //logTrace "json: ${JsonOutput.toJson(json)}"
+
+  boolean debugImpulses = enableDebugPreferences && debugImpulseType
+  boolean impulseExcludesInitialized = false
+
+  // These will be lazily initialized on first use
+  final HashSet<String> impulseTypeExcludeList = null
+  final HashSet<String> impulseCommandCompleteExcludeList = null
+  final HashSet<String> impulseErrorSetInfoExcludeList =  null
 
   final String msg = json.msg
 
@@ -726,20 +763,20 @@ List<Map> extractDeviceInfos(final Map json) {
       continue
     }
 
+    String deviceType
+
     if (msg == 'Passthru') {
       curDeviceInfo.state = deviceJson.data.subMap(['percent', 'timeLeft', 'total', 'transition'])
       curDeviceInfo.zid = curDeviceInfo.assetId
-      curDeviceInfo.deviceType = deviceJson.type
+      deviceType = deviceJson.type
     } else {
-      String deviceType
-
       if (deviceJson.general) {
         final Map tmpGeneral = deviceJson.general.v1 ?: deviceJson.general.v2
 
         if (tmpGeneral) {
           curDeviceInfo << tmpGeneral.subMap(deviceJsonGeneralKeys)
 
-          deviceType = curDeviceInfo.deviceType
+          deviceType = tmpGeneral.deviceType
 
           // Hubs get information from multiple deviceTypes. Exclude some of the values to avoid incorrect values getting set
           if (!HUB_PARTIAL_DEVICE_TYPES.contains(deviceType)) {
@@ -786,17 +823,40 @@ List<Map> extractDeviceInfos(final Map json) {
       if (deviceJson.impulse?.v1) {
         final List tmpImpulses = deviceJson.impulse.v1
 
-        final String impulseType = tmpImpulses[0].impulseType
+        final String firstImpulseType = tmpImpulses[0].impulseType
 
-        curDeviceInfo.impulseType = impulseType
+        curDeviceInfo.impulseType = firstImpulseType
 
-        if (impulseType == "comm.heartbeat") {
+        if (firstImpulseType == "comm.heartbeat") {
           curDeviceInfo.lastCheckin = lastCheckin
         }
 
         Map impulses = [:]
         for (final Map impulse in tmpImpulses) {
-          impulses[impulse.impulseType] = impulse.data
+          final String impulseType = impulse.impulseType
+          if (debugImpulses) {
+            if (!impulseExcludesInitialized) {
+              impulseExcludesInitialized = true
+              impulseTypeExcludeList = state.debugImpulseTypeExcludeList
+              impulseCommandCompleteExcludeList = state.debugImpulseCommandCompleteExcludeList
+              fimpulseErrorSetInfoExcludeList = state.debugImpulseErrorSetInfoExcludeList
+            }
+
+            if (impulseType == 'command.complete') {
+              if (!impulseCommandCompleteExcludeList?.contains(impulse.data?.commandType)) {
+                log.info("Special Debug: Got impulse command.complete (${impulse.data?.commandType}): ${JsonOutput.toJson(json)}")
+              }
+            }
+            else if (impulseType == 'error.set-info') {
+              if (!impulseErrorSetInfoExcludeList?.contains(impulse.data?.info?.command?.v1?.commandType)) {
+                log.info("Special Debug: Got impulse error.set-info (${impulse.data?.info?.command?.v1?.commandType}): ${JsonOutput.toJson(json)}")
+              }
+            }
+            else if (!impulseTypeExcludeList?.contains(impulseType)) {
+              log.info("Special Debug: Got impulse ${impulseType}: ${JsonOutput.toJson(json)}")
+            }
+          }
+          impulses[impulseType] = impulse.data
         }
         curDeviceInfo.impulses = impulses
       }
@@ -814,12 +874,18 @@ List<Map> extractDeviceInfos(final Map json) {
           // Log if some other unsupported keys are found
           final Set otherKeys = ['sensitivity'] - tmpPendingDevice.keySet()
           if (otherKeys) {
-            log.warn("Found unexpected pending keys: ${otherKeys}: ${JsonOutput.toJson(tmpPendingDevice)}")
+            log.warn("Found unexpected pending keys: ${otherKeys}: ${JsonOutput.toJson(deviceJson)}")
           }
         }
 
         if (tmpPending.command?.v1) {
           curDeviceInfoPending.commands = tmpPending.command.v1
+        }
+
+        // Log if some other unsupported keys are found
+        final Set otherKeys = ['device', 'command'] - tmpPending.keySet()
+        if (otherKeys) {
+          log.warn("Found unexpected pending keys: ${otherKeys}: ${JsonOutput.toJson(deviceJson)}")
         }
 
         if (!curDeviceInfoPending.isEmpty()) {
@@ -859,11 +925,21 @@ List<Map> extractDeviceInfos(final Map json) {
       }
     }
 
-    deviceInfos.add(curDeviceInfo)
+    curDeviceInfo.deviceType = deviceType
 
-    if (curDeviceInfo.deviceType == null) {
+    if (deviceType == null) {
       log.warn "null device type message?: ${JsonOutput.toJson(deviceJson)}"
     }
+
+    if (enableDebugPreferences && debugDeviceType) {
+      final HashSet<String> deviceTypeIncludeList = state.debugDeviceTypeIncludeList
+
+      if (deviceTypeIncludeList && deviceTypeIncludeList.contains(deviceType)) {
+        log.info("Special Debug: Got deviceType ${deviceType}: ${JsonOutput.toJson(deviceJson)}")
+      }
+    }
+
+    deviceInfos.add(curDeviceInfo)
   }
 
   logTrace "found ${deviceInfos.size()} devices"
