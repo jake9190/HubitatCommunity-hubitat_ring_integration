@@ -175,6 +175,11 @@ HashSet<String> getCreateableHubs() {
   return state.createableHubs
 }
 
+// @return True if the hub is creatable
+boolean isCreatableHub(final String assetKind) {
+  return getCreateableHubs().contains(assetKind)
+}
+
 boolean isWebSocketCapable() {
   return state.createableHubs != null && state.createableHubs.size() > 0
 }
@@ -465,7 +470,6 @@ void initWebsocket(json) {
     log.error "Can't find the server: ${json}"
   }
 
-  //test client: https://www.websocket.org/echo.html
   logTrace "wsUrl: $wsUrl"
 
   try {
@@ -543,7 +547,7 @@ def parse(String description) {
               logDebug "Ring Alarm hub is starting to configure a new device"
             }
             else if (statusString == "device.find.configuring.finished") {
-              log.warn("Ring Alarm hub has finished configuring a new device. To add this device to hubitat, run 'createDevices' in the 'Ring API Virtual Device'")
+              log.info "Ring Alarm hub has finished configuring a new device. To add this device to hubitat, run 'createDevices' in the 'Ring API Virtual Device'"
             }
             else if (statusString == "device.find.listening") {
               logDebug "Ring Alarm hub is listening for new devices"
@@ -571,9 +575,20 @@ def parse(String description) {
             }
           }
         }
-        else if (datatype == "DeviceAddDocType" || datatype == "RemovedDeviceType") {
-          log.warn ("Got a ${datatype}!! Save this as an example!!!")
-          log.warn description
+        else if (datatype == "RemovedDeviceType") {
+          for (final Map data in json[1].body) {
+            def child = getChildByZID(data.zid)
+            if (child != null) {
+              log.warn ("The ring device ${child} with zid ${data.zid} was removed. You may want to delete the device in hubitat as well")
+            } else {
+              log.warn ("Couldn't find anything")
+            }
+          }
+        }
+        else if (datatype == "DeviceAddDocType") {
+          for (final Map deviceInfo in extractDeviceInfos(json[1])) {
+            log.info "A new ring device '${deviceInfo.name ?: deviceInfo.deviceName}' of type ${deviceType} with zid ${deviceInfo.zid} was added"
+          }
         }
         else {
           log.warn "Received unsupported ${msgtype} datatype ${datatype}. Please report this to the developers so support can be added."
@@ -582,8 +597,8 @@ def parse(String description) {
       }
       else if (msgtype == "Passthru") {
         if (datatype == "PassthruType") {
-          // Only create device infos for hubs devices that were selected in the app
-          if (getCreateableHubs().contains(json[1].context.assetKind)) {
+          // Only parse events for hubs that were selected in the app
+          if (isCreatableHub(json[1].context.assetKind)) {
             for (final Map deviceInfo in extractDeviceInfos(json[1])) {
               logTrace "created deviceInfo: ${JsonOutput.toJson(deviceInfo)}"
               sendPassthru(deviceInfo)
@@ -666,8 +681,8 @@ def parse(String description) {
       final String assetKind = json[1].context.assetKind
       final String assetId = json[1].context.assetId
 
-      // Only create device infos for hubs  that were selected in the app
-      if (getCreateableHubs().contains(assetKind)) {
+      // Only parse events for hubs that were selected in the app
+      if (isCreatableHub(assetKind)) {
         List<Map> deviceInfos = extractDeviceInfos(json[1])
         // If the hub for these device infos doesn't exist then create it
         if (!getChildByZID(assetId)) {
@@ -954,14 +969,14 @@ void createDevice(final Map deviceInfo) {
   final String deviceType = deviceInfo.deviceType
 
   if (deviceType == null) {
-    logDebug "Cannot create deviceType ${deviceType} because it is null"
+    log.error "Cannot create deviceType ${deviceType} because it is null"
     return
   }
 
   final String mappedDeviceTypeName = DEVICE_TYPE_NAMES[deviceType]
 
   if (mappedDeviceTypeName == null) {
-    log.warn "Cannot create a ${deviceType} device. Unsupported device type!"
+    log.error "Cannot create a ${deviceType} device. Unsupported device type!"
     return
   }
 
@@ -974,8 +989,9 @@ void createDevice(final Map deviceInfo) {
   if (!isHub(deviceType)) {
     final String parentKind = state.hubs.find { it.zid == deviceInfo.src }.kind
 
-    if (!getCreateableHubs().contains(parentKind)) {
-      logDebug "not creating ${deviceInfo.name} because parent ${parentKind} is not creatable!"
+    // Was the hub selected in the app?
+    if (!isCreatableHub(parentKind)) {
+      logDebug "not creating ${deviceInfo.name} because parent ${parentKind} was not selected in the app!"
       return
     }
   }
@@ -985,14 +1001,14 @@ void createDevice(final Map deviceInfo) {
   def d = getChildDevice(formattedDNI)
   if (!d) {
     // Devices that have drivers that store in devices
-    log.warn "Creating a ${mappedDeviceTypeName} (${deviceType}) with dni: ${formattedDNI}"
+    log.info "Creating a ${mappedDeviceTypeName} (${deviceType}) with dni: ${formattedDNI}"
     try {
       d = addChildDevice("ring-hubitat-codahq", mappedDeviceTypeName, formattedDNI,
                          [label: deviceInfo.name ?: mappedDeviceTypeName])
 
       setInitialDeviceDataValues(d, deviceInfo.deviceType, deviceInfo)
 
-      log.warn "Successfully added ${deviceType} with dni: ${formattedDNI}"
+      log.info "Successfully added ${deviceType} with dni: ${formattedDNI}"
     }
     catch (e) {
       if (e.toString().replace(mappedDeviceTypeName, "") ==
@@ -1054,7 +1070,11 @@ void sendUpdate(final Map deviceInfo) {
   def d = getChildByZID(isHiddenDeviceType(deviceType) ? deviceInfo.assetId : deviceInfo.zid)
   if (!d) {
     if (!suppressMissingDeviceMessages) {
-      log.warn "Couldn't find device ${deviceInfo.name ?: deviceInfo.deviceName} of type ${deviceType} with zid ${deviceInfo.zid} (Run createDevice() to create missing devices)"
+      if (DEVICE_TYPE_NAMES.keySet().contains(deviceType)) {
+        log.warn "Couldn't find device '${deviceInfo.name ?: deviceInfo.deviceName}' of type ${deviceType} with zid ${deviceInfo.zid} (Run createDevice() to create missing devices)"
+      } else {
+        log.warn "Device ${deviceInfo.name ?: deviceInfo.deviceName} of type ${deviceType} with zid ${deviceInfo.zid} is not currently supported"
+      }
     }
   }
   else {
