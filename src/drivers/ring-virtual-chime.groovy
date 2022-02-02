@@ -147,27 +147,50 @@ def volumeDown() {
   }
 }
 
-//TODO
-/*
-playText(text, volumelevel)
-text required (STRING) - Text to play
-volumelevel optional (NUMBER) - Volume level (0 to 100)
-playTextAndRestore(text, volumelevel)
-text required (STRING) - Text to play
-volumelevel optional (NUMBER) - Volume level (0 to 100)
-playTextAndResume(text, volumelevel)
-text required (STRING) - Text to play
-volumelevel optional (NUMBER) - Volume level (0 to 100)
-*/
+/**
+ * text required (STRING) - Text to play
+ * volumelevel optional (NUMBER) - Volume level (0 to 100)
+ */
+void playText(text, volumelevel) {
+  log.error "Not implemented! playText(text, volumelevel)"
+}
 
+/**
+ * text required (STRING) - Text to play
+ * volumelevel optional (NUMBER) - Volume level (0 to 100)
+ */
+void playTextAndRestore(text, volumelevel) {
+  log.error "Not implemented! playTextAndRestore(text, volumelevel)"
+}
+
+/**
+ * text required (STRING) - Text to play
+ * volumelevel optional (NUMBER) - Volume level (0 to 100)
+ */
+void playTextAndResume(text, volumelevel) {
+  log.error "Not implemented! playTextAndResume(text, volumelevel)"
+}
+
+/**
+ * trackuri required (STRING) - URI/URL of track to play
+ * volumelevel optional (NUMBER) - Volume level (0 to 100)
+ */
 def playTrack(trackuri, volumelevel) {
   log.error "Not implemented! playTrack(trackuri, volumelevel)"
 }
 
+/**
+ * trackuri required (STRING) - URI/URL of track to play
+ * volumelevel optional (NUMBER) - Volume level (0 to 100)
+ */
 def playTrackAndRestore(trackuri, volumelevel) {
   log.error "Not implemented! playTrackAndRestore(trackuri, volumelevel)"
 }
 
+/**
+ * trackuri required (STRING) - URI/URL of track to play
+ * volumelevel optional (NUMBER) - Volume level (0 to 100)
+ */
 def playTrackAndResume(trackuri, volumelevel) {
   log.error "Not implemented! playTrackAndResume(trackuri, volumelevel)"
 }

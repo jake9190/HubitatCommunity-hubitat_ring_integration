@@ -38,8 +38,7 @@ preferences {
   page(name: "configurePDevice")
   page(name: "deletePDevice")
   page(name: "changeName")
-  page(name: "discoveryPage", title: "Device Discovery", content: "discoveryPage", refreshTimeout: 10)
-  page(name: "addDevices", title: "Add Ring Devices", content: "addDevices")
+  page(name: "addDevices")
   page(name: "deviceDiscovery")
   page(name: "notifications")
   page(name: "ifttt")
@@ -47,64 +46,57 @@ preferences {
   page(name: "snapshots")
   page(name: "snapshotConfig")
   page(name: "dashboardHelp")
-  page(name: "logging")
   page(name: "hardwareIdReset")
 
 }
 
 def login() {
-  //since we're forcing 2FA...  by the way, the two factor toggle is left in on purpose so that people see the change Ring made and it's a cue to hunt up the token
-  app.updateSetting("twofactor", [value: "true", type: "bool"])
-  dynamicPage(name: "login", title: "Log into Your Ring Account", nextPage: /*twofactor ? */ "secondStep"/* : "locations"*/, uninstall: true) {
+  dynamicPage(name: "login", title: "Log into Your Ring Account", nextPage: "secondStep", uninstall: true) {
     section("Ring Account Information") {
-      paragraph '<script type="application/javascript">\n' +
-        'var checkbox = $("#settings\\\\[twofactor\\\\]");\n' +
-        'checkbox.prop("checked", true);\n' +
-        'checkbox.click(function(){return false;});\n' +
-        '</script>'
-      preferences {
-        input "username", "email", title: "Ring Username", description: "Email used to login to Ring.com", displayDuringSetup: true, required: true
-        input "password", "password", title: "Ring Password", description: "Password you login to Ring.com", displayDuringSetup: true, required: true
-        input name: "twofactor", type: "bool", title: "2FA Enabled", description: "Toggle on if 2FA is enabled", displayDuringSetup: true, defaultValue: true, submitOnChange: true
-      }
+      paragraph "<h2>NOTE: Ring now requires two-factor authentication. You will be prompted for your code on the next page."
+      input "username", "email", title: "Ring Username", description: "Email used to login to Ring.com", required: true
+      input "password", "password", title: "Ring Password", description: "Password you login to Ring.com", required: true
     }
   }
 }
 
 def secondStep() {
   state.refresh_token = null
-  def auth_token = authenticate()
+  String auth_token = authenticate()
 
   if (!loggedIn() && auth_token != "challenge") {
-    return dynamicPage(name: "secondStep", title: "Authenticate failed!  Please check your Ring username and password", nextPage: "login", uninstall: true) {
+    return dynamicPage(name: "secondStep", title: "Authenticate failed!", nextPage: "login", uninstall: true) {
+      section("Please check your Ring username and password") { paragraph "" }
     }
   }
   dynamicPage(name: "secondStep", title: "Check text messages or email for the 2-step authentication code", nextPage: "locations", uninstall: true) {
     section("2-Step Code") {
-      input "twoStepCode", "password", title: "Code", description: "2-Step Temporary Code", displayDuringSetup: false, required: true
+      input "twoStepCode", "password", title: "Code", description: "2-Step Temporary Code", required: true
     }
   }
 }
 
 def locations() {
-  if (twofactor) {
-    authenticate(twoStepCode)
-  }
-  else {
-    authenticate()
-  }
+  authenticate(twoStepCode)
 
   def locations = simpleRequest("locations")
   Map options = [:]
   locations.each {
     options[it.location_id.toString()] = it.name.toString()
   }
-  Integer numFound = options.size()
-  state.locationOptions = options
 
-  dynamicPage(name: "locations", title: "Select which location you want to use", nextPage: "mainPage", uninstall: true) {
-    section("Locations") {
-      input "selectedLocations", "enum", required: true, title: "Select a location  (${numFound} found)", options: options
+  if (!options) {
+    dynamicPage(name: "locations", title: "Error", nextPage: "login", uninstall: true) {
+      section("Error getting locations. Was 2-step code incorrect?") { paragraph "" }
+    }
+
+  } else {
+    state.locationOptions = options
+
+    dynamicPage(name: "locations", title: "Select which location you want to use", nextPage: "mainPage", uninstall: true) {
+      section("Locations") {
+        input "selectedLocations", "enum", required: true, title: "Select a location  (${options.size()} found)", options: options
+      }
     }
   }
 }
@@ -113,39 +105,45 @@ def mainPage() {
   final Map location = getSelectedLocation()
   logTrace "location: $location"
 
-  dynamicPage(name: "mainPage", title: "Manage Your Ring Devices", nextPage: null, uninstall: true, install: true) {
+  dynamicPage(name: "mainPage", title: "Manage Your Ring Devices", uninstall: true, install: true) {
     section("Ring Account Information    (<b>${loggedIn() ? 'Successfully Logged In!' : 'Not Logged In. Please Configure!'}</b>)") {
-      href "login", title: "Log into Your Ring Account", description: ""
+      href "login", title: "Log into Your Ring Account"
     }
 
     if (location) {
       if (!getAPIDevice(location)) {
-        section("There was an issue finding/migrating your API device! Please check the logs!") {}
+        section("There was an issue finding/migrating your API device! Please check the logs!") { paragraph "" }
       }
       section("Configure Devices For Location:    <b>${location.name}</b>") {
-        href "deviceDiscovery", title: "Discover Devices", description: ""
+        href "deviceDiscovery", title: "Discover Devices"
       }
     }
     else {
-      section("<b>Log in again to pick a location before proceeding!!</b>") {}
+      section("<b>Log in again to pick a location before proceeding!!</b>") { paragraph "" }
     }
 
-    section("Installed Devices") {
-      getChildDevices().sort({ a, b -> a["deviceNetworkId"] <=> b["deviceNetworkId"] }).each {
-        href "configurePDevice", title: "$it.label", description: "", params: [did: it.deviceNetworkId]
+    def childDevs = getChildDevices()
+
+    if (childDevs) {
+      section("Installed Devices") {
+        childDevs.sort({ a, b -> a["deviceNetworkId"] <=> b["deviceNetworkId"] }).each {
+          href "configurePDevice", title: it.label, params: [did: it.deviceNetworkId]
+        }
       }
     }
 
     section("Getting Events From Ring") {
-      href "notifications", title: "Configure the way that Hubitat will get motion alert and ring events", description: ""
+      href "notifications", title: "Configure the way that Hubitat will get motion alert and ring events"
     }
 
     section("Camera Thumbnail Images") {
-      href "snapshots", title: "Configure the way that Hubitat will get camera thumbnail images", description: ""
+      href "snapshots", title: "Configure the way that Hubitat will get camera thumbnail images"
     }
 
-    section("Logging") {
-      href "logging", title: "Configure logging", description: ""
+    section("Configure Logging", hidden: true, hideable: true) {
+      input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: false
+      input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
+      input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
     }
   }
 }
@@ -153,11 +151,11 @@ def mainPage() {
 def notifications() {
   setupDingables()
   dynamicPage(name: "notifications", title: "Configure the way that Hubitat will get motion alert and ring events.  Choose one of the following methods.  IFTTT is highly preferred.", nextPage: "mainPage", uninstall: false) {
-    section("") {
-      href "ifttt", title: "IFTTT Integration and Documenation for Motion and Ring Alerts", description: ""
+    section {
+      href "ifttt", title: "IFTTT Integration and Documenation for Motion and Ring Alerts"
     }
-    section("") {
-      href "pollingPage", title: "Configure Polling for Motion and Ring Alerts", description: ""
+    section {
+      href "pollingPage", title: "Configure Polling for Motion and Ring Alerts"
     }
   }
 }
@@ -250,9 +248,7 @@ def ifttt() {
     }
     section('<b style="font-size: 22px;">Resetting the OAuth Access Token</b>') {
       paragraph("<b style=\"color: red;\">Do not toggle this button without understanding the following.</b>  Resetting this token will require you to update all of the URLs in any existing IFTTT applets <b>AS WELL AS</b> any snapshot URL in snapshot dashboard tiles.  There is no need to reset the token unless it was compromised.")
-      preferences {
         input name: "tokenReset", type: "bool", title: "Toggle this to reset your app's OAuth token", defaultValue: false, submitOnChange: true
-      }
     }
   }
 }
@@ -260,46 +256,42 @@ def ifttt() {
 def pollingPage() {
   configureDingPolling()
 
-  dynamicPage(name: "pollingPage", uninstall: false) {
+  dynamicPage(name: "pollingPage", title: "Configure Polling for Motion and Ring Alerts") {
     section('<b style="color: red; font-size: 22px;">WARNING!!  ADVERTENCIA!!  ACHTUNG!!  AVERTISSEMENT!!</b>') {
       paragraph("Polling too quickly can have adverse affects on performance of your hubitat hub and may even get your Ring account temporarily or permanently locked.  As of November 2019 no known action has been taken by Ring to prevent polling but there is no gaurantee of this in the future.")
       paragraph("<u>This is true for not only motion and ring event polling but for light status polling which can be configured on each individual device.</u>")
       paragraph("<b>It is recommended to use the IFTTT method to receive notifcations instead of polling.</b>")
     }
     section("<b><u>Configure settings to poll for motions and rings:</u></b>") {
-      preferences {
-        input name: "dingPolling", type: "bool", title: "Poll for motion and rings", defaultValue: false, submitOnChange: true
-        if (dingPolling) {
-          input name: "dingInterval", type: "number", range: "8..20", title: "Number of seconds in between motion/ring polls", defaultValue: 15, submitOnChange: true
-        }
+      input name: "dingPolling", type: "bool", title: "Poll for motion and rings", defaultValue: false, submitOnChange: true
+      if (dingPolling) {
+        input name: "dingInterval", type: "number", range: "8..20", title: "Number of seconds in between motion/ring polls", defaultValue: 15, submitOnChange: true
       }
     }
   }
 }
 
 def snapshots() {
-  dynamicPage(name: "snapshots", title: "Camera Thumbnail Images:", nextPage: "mainPage", uninstall: false) {
-    section("") {
-      href "snapshotConfig", title: "Snapshot Configuration", description: ""
+  dynamicPage(name: "snapshots", title: "Camera Thumbnail Images:", nextPage: "mainPage") {
+    section {
+      href "snapshotConfig", title: "Snapshot Configuration"
     }
-    section("") {
-      href "dashboardHelp", title: "Viewing Snapshots and Dashboard Configuration", description: ""
+    section {
+      href "dashboardHelp", title: "Viewing Snapshots and Dashboard Configuration"
     }
   }
 }
 
 def snapshotConfig() {
   configureSnapshotPolling()
-  dynamicPage(name: "snapshotConfig", nextPage: "snapshots", uninstall: false) {
+  dynamicPage(name: "snapshotConfig", title: "Snapshot Configuration", nextPage: "snapshots") {
     section('<b style="color: red; font-size: 22px;">WARNING!!  ADVERTENCIA!!  ACHTUNG!!  AVERTISSEMENT!!</b>') {
       paragraph("Retrieving thumbnail images may have adverse affects on performance of your hubitat hub.")
     }
     section("<b><u>Configure Settings to Poll for Camera Thumbnail Images:</u></b>") {
-      preferences {
-        input name: "snapshotPolling", type: "bool", title: "Poll for camera thumbnails", defaultValue: false, submitOnChange: true
-        if (snapshotPolling == true) {
-          input name: "snapshotInterval", type: "enum", title: "Interval between thumbnail refresh", required: true, options: snapshotInvertals, defaultValue: 120
-        }
+      input name: "snapshotPolling", type: "bool", title: "Poll for camera thumbnails", defaultValue: false, submitOnChange: true
+      if (snapshotPolling == true) {
+        input name: "snapshotInterval", type: "enum", title: "Interval between thumbnail refresh", required: true, options: snapshotInvertals, defaultValue: 120
       }
     }
   }
@@ -310,7 +302,7 @@ def dashboardHelp() {
 
   setupDingables()
 
-  def ringables = state.dingables.findAll {
+  state.dingables.findAll {
     RINGABLES.contains(getChildDeviceInternal(it).getDataValue("kind"))
   }
 
@@ -320,7 +312,7 @@ def dashboardHelp() {
     createAccessToken()
   }
 
-  dynamicPage(name: "dashboardHelp", title: '<b style="font-size: 25px;">Snapshots in Dashboards</b>', uninstall: false, nextPage: "snapshots") {
+  dynamicPage(name: "dashboardHelp", title: '<b style="font-size: 25px;">Snapshots in Dashboards</b>', nextPage: "snapshots") {
     section('<b style="font-size: 22px;">About Snapshot Polling</b>') {
       paragraph("The snapshots provided by this app will only work when accessing them locally.  The image thumbnails cannot be made available via the cloud for several reasons which will not be discussed here.  If you try to access the dashboards with these images they will only display locally (when on the same network as the hub).")
       paragraph("Normally Ring only polls your devices for snapshots when an app on your account is open that needs image thumbnails.  For example, new camera thumnails will not be pulled unless you have the dashboard open on the phone app.  Instead of requiring you to have the phone app open all of the time the Hubitat \"Unofficial Ring Connect\" app can get around this by requesting that Ring update the snapshos manually.")
@@ -347,7 +339,7 @@ def dashboardHelp() {
           "- No device is necessary so DO NOT pick one in the \"Pick A Device\" list.  Instead pick \"Image\" from the template list.\n" +
           "- At the bottom of this page are listed all the available camera URLs.  Copy and paste the desired camera's URL into the \"Background Image Link\" field or \"Image URL\".  If you use the \"Background Image Link\" the image will fill the entire tile.  If you use \"Image URL\" the tile will display letter boxes.\n" +
           "- Leave \"Background Image Link\" blank.\n" +
-          "- Choose a \"Refresh Interval (seconds)\" that is greater than or equal to the refresh interval you chose in snapshot configuration. (You chose ${snapshotInterval} seconds.)\n" +
+          "- Choose a \"Refresh Interval (seconds)\" that is greater than or equal to the refresh interval you chose in snapshot configuration.${snapshotPolling != true ? "" : "(You chose snapshotInterval seconds.)\n"}" +
           "- Click the \"Add Tile\" button."
       )
     }
@@ -391,21 +383,7 @@ def dashboardHelp() {
     }
     section('<b style="font-size: 22px;">Resetting the OAuth Access Token</b>') {
       paragraph("<b style=\"color: red;\">Do not toggle this button without understanding the following.</b>  Resetting this token will require you to update all of the URLs in any existing dashboard tile <b>AS WELL AS</b> any URL in any IFTTT applet you have configured.  There is no need to reset the token unless it was compromised.")
-      preferences {
-        input name: "tokenReset", type: "bool", title: "Toggle this to reset your app's OAuth token", defaultValue: false, submitOnChange: true
-      }
-    }
-  }
-}
-
-def logging() {
-  dynamicPage(name: "logging", title: "Configure settings logging", nextPage: "mainPage", uninstall: false) {
-    section("Logging") {
-      preferences {
-        input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: false
-        input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
-        input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
-      }
+      input name: "tokenReset", type: "bool", title: "Toggle this to reset your app's OAuth token", defaultValue: false, submitOnChange: true
     }
   }
 }
@@ -421,32 +399,41 @@ def hardwareIdReset() {
     generateAppDeviceId()
   }
 
-  dynamicPage(name: "hardwareIdReset", title: "Do you want to reset your app's \"hardware ID?\"", uninstall: false) {
+  dynamicPage(name: "hardwareIdReset", title: "Do you want to reset your app's \"hardware ID?\"") {
     section() {
       paragraph("Performing an app hardware reset will require you to login again.")
-      preferences {
-        input name: "hardwareReset", type: "bool", title: "Toggle this to reset your app's hardware ID", defaultValue: false, submitOnChange: true
-      }
+      input name: "hardwareReset", type: "bool", title: "Toggle this to reset your app's hardware ID", defaultValue: false, submitOnChange: true
     }
   }
 }
 
-def configurePDevice(params) {
-  if (params?.did || params?.params?.did) {
+def configurePDevice(Map params = [:]) {
+  def childDevice
+
+  if (params.did || params.params?.did) {
     state.currentDeviceId = params.did ? params.did : params.params.did
-    state.currentDisplayName = getChildDeviceInternal(state.currentDeviceId)?.displayName
+
+    childDevice = getChildDeviceInternal(state.currentDeviceId)
   }
 
-  getChildDeviceInternal(state.currentDeviceId)?.configure()
+  if (childDevice == null) {
+    return dynamicPage(name: "configurePDevice", title: "Error getting device", nextPage: "mainPage") {
+      section("Could not get device with is ${state.currentDeviceId}") { paragraph "" }
+    }
+  }
+
+  final String childDeviceDisplayName = childDevice.displayName
+
+  childDevice.configure()
 
   dynamicPage(name: "configurePDevice", title: "Configure Ring Devices created with this app", nextPage: "mainPage") {
     section {
-      app.updateSetting("${state.currentDeviceId}_label", getChildDeviceInternal(state.currentDeviceId).label)
-      input "${state.currentDeviceId}_label", "text", title: "Device Name", description: "", required: false
+      app.updateSetting("${state.currentDeviceId}_label", childDevice.label)
+      input "${state.currentDeviceId}_label", "text", title: "Device Name"
       href "changeName", title: "Change Device Name", description: "Edit the name above and click here to change it"
     }
-    if (state.currentDeviceId.startsWith(RING_API_DNI)) {
-      section {
+    section {
+      if (state.currentDeviceId.startsWith(RING_API_DNI)) {
         paragraph("This is the virtual device that holds the WebSockets connection for your Ring hubs/bridges. You don't need to "
           + "know what this means but I wanted to tell you so I can justify why it had to exist and why you have to create "
           + "it.  At the time of the creation of this app a WebSockets client could only be created in a device.  It is/was "
@@ -458,48 +445,43 @@ def configurePDevice(params) {
           + "to create and maintain those types of devices through the HE app.  For now, the only way I can get a list of these "
           + "devices is through the web socket so it will only be done through the API device which holds the API device.")
       }
-    }
-    else {
-      section {
-        href "deletePDevice", title: "Delete $state.currentDisplayName", description: ""
+      else {
+        href "deletePDevice", title: "Delete $childDeviceDisplayName"
       }
     }
   }
 }
 
 def deletePDevice() {
-  try {
-    unsubscribe()
-    deleteChildDevice(state.currentDeviceId)
-    dynamicPage(name: "deletePDevice", title: "Deletion Summary", nextPage: "mainPage") {
-      section {
-        paragraph "The device has been deleted. Press next to continue"
-      }
-    }
-
-  }
-  catch (e) {
-    dynamicPage(name: "deletePDevice", title: "Deletion Summary", nextPage: "mainPage") {
-      section {
-        paragraph "Error: ${(e.toString()).split(": ")[1]}."
+  dynamicPage(name: "deletePDevice", title: "Deletion Summary", nextPage: "mainPage") {
+    section {
+      if (state.currentDeviceId) {
+        try {
+          deleteChildDevice(state.currentDeviceId)
+          paragraph "The device has been deleted. Press next to continue"
+        }
+        catch (e) {
+          paragraph "Error: ${(e.toString()).split(": ")[1]}."
+        }
+      } else {
+        paragraph "Error: No device defined to delete (state.currentDeviceId is empty)"
       }
     }
   }
 }
 
 def changeName() {
-  def thisDevice = getChildDeviceInternal(state.currentDeviceId)
-  thisDevice.label = settings["${state.currentDeviceId}_label"]
-
   dynamicPage(name: "changeName", title: "Change Name Summary", nextPage: "mainPage") {
     section {
-      paragraph "The device has been renamed. Press \"Next\" to continue"
+      if (state.currentDeviceId) {
+        def thisDevice = getChildDeviceInternal(state.currentDeviceId)
+        thisDevice.label = settings["${state.currentDeviceId}_label"]
+        paragraph "The device has been renamed. Press \"Next\" to continue"
+      } else {
+        paragraph "Error: No device defined to rename (state.currentDeviceId is empty)"
+      }
     }
   }
-}
-
-def discoveryPage() {
-  return deviceDiscovery()
 }
 
 def deviceDiscovery(Map params = [:]) {
@@ -508,12 +490,14 @@ def deviceDiscovery(Map params = [:]) {
   def auth_token = authenticate()
 
   if (!auth_token) {
-    return dynamicPage(name: "deviceDiscovery", title: "Authenticate failed!  Please check your Ring username and password", nextPage: "login", uninstall: true) {
+    return dynamicPage(name: "deviceDiscovery", title: "Authenticate failed!", nextPage: "login", uninstall: true) {
+      section("Please check your Ring username and password") { paragraph "" }
     }
   }
 
   if (!selectedLocations) {
-    return dynamicPage(name: "deviceDiscovery", title: "No locations selected!  Please check your Ring location setup", nextPage: "login", uninstall: true) {
+    return dynamicPage(name: "deviceDiscovery", title: "No locations selected!p", nextPage: "locations", uninstall: true) {
+      section("Please check your Ring location setup") { paragraph "" }
     }
   }
 
@@ -534,10 +518,10 @@ def deviceDiscovery(Map params = [:]) {
 
   return dynamicPage(name: "deviceDiscovery", title: "Discovery Started!", nextPage: "addDevices", uninstall: true) {
     section("Making a call to Ring.  Are these your devices?  Please select the devices you want created as Hubitat devices.") {
-      input "selectedDevices", "enum", required: false, title: "Select Ring Device(s) (${numFound} found)", multiple: true, options: options
+      input "selectedDevices", "enum", title: "Select Ring Device(s) (${numFound} found)", multiple: true, options: options
     }
     section("Options") {
-      href "deviceDiscovery", title: "Reset list of discovered devices", description: "", params: ["reset": "true"]
+      href "deviceDiscovery", title: "Reset list of discovered devices", params: ["reset": "true"]
     }
   }
 }
@@ -570,6 +554,10 @@ def installed() {
 }
 
 def updated() {
+  // Clean up some things from old versions
+  app.removeSetting('twofactor')
+  state.remove('currentDisplayName')
+
   initialize()
 }
 
@@ -682,6 +670,13 @@ def addDevices() {
   logTrace "devices ${devices}"
 
   def apiDevice = getAPIDevice()
+
+  if (!apiDevice) {
+    return dynamicPage(name: "addDevices", title: "Error", nextPage: "mainPage", uninstall: true) {
+      section("getAPIDevice returned null. See logs for more details") { paragraph "" }
+    }
+  }
+
   String sectionText = ""
   boolean hubAdded = false
 
@@ -752,7 +747,7 @@ def addDevices() {
 
   logDebug sectionText
   return dynamicPage(name: "addDevices", title: "Devices Added", nextPage: "mainPage", uninstall: true) {
-    if (sectionText != "") {
+    if (sectionText) {
       section("Please Note!") {
         paragraph "Alarm base stations, Smart Lighting bridges and all devices connected to them are sub-devices of the API device.\r\n"
       }
@@ -870,7 +865,7 @@ void configureSnapshotPolling() {
   }
 }
 
-@Field static Map<Integer, List<Integer>> minuteSpans = [
+@Field final static Map<Integer, List<Integer>> minuteSpans = [
   0: [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57],
   1: [1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34, 37, 40, 43, 46, 49, 52, 55, 58],
   2: [2, 5, 8, 11, 14, 17, 20, 23, 26, 29, 32, 35, 38, 41, 44, 47, 50, 53, 56, 59]
@@ -1367,13 +1362,7 @@ private Map getRequests(final String type, parts) {
   }
 }
 
-def parse(String description) {
-  logDebug "parse(String description)"
-  logTrace "description: $description"
-  log.error "Parse?"
-}
-
-def authenticate(twoFactorCode) {
+String authenticate(twoFactorCode) {
   logDebug "authenticate($twoFactorCode)"
   if (!state.appDeviceId) {
     generateAppDeviceId()
@@ -1381,13 +1370,14 @@ def authenticate(twoFactorCode) {
 
   Map data = [grantData: getGrantData(twoFactorCode), twoFactorCode: twoFactorCode]
   logTrace "data: ${data}"
-  def result = simpleRequest("auth", data)
+  String result = simpleRequest("auth", data)
   if (result == "challenge") {
     return result
   }
-  if (result) {
+  else if (result) {
     return state.access_token
   }
+  return null
 }
 
 private Map getGrantData(twoFactorCode) {
@@ -1399,7 +1389,7 @@ private Map getGrantData(twoFactorCode) {
     ]
   }
 
-  if (!twofactor || (twofactor && !state.refresh_token)) {
+  if (!state.refresh_token) {
     return [
       grant_type: 'password',
       password: settings.password,
@@ -1407,7 +1397,7 @@ private Map getGrantData(twoFactorCode) {
     ]
   }
 
-  log.error 'Refresh token is not valid.  Unable to authenticate with Ring servers.'
+  log.error 'Refresh token is not valid. Unable to authenticate with Ring servers.'
 }
 
 def simpleRequest(final String type, Map data = [:]) {
@@ -1589,8 +1579,8 @@ def responseHandler(response, Map params) {
       logTrace "body: ${response.data ? response.getJson() : null}"
     }
     else if (params.method == "snapshot-image" || params.method == "snapshot-image-tmp") {
-      byte[] array = new byte[response.data.available()];
-      response.data.read(array);
+      byte[] array = new byte[response.data.available()]
+      response.data.read(array)
       return array
 
       //getChildDeviceInternal(params.data.dni).childParse(params.method, [
@@ -1659,9 +1649,15 @@ def getChildDeviceInternal(id) {
 }
 
 def getAPIDevice(Map location = null) {
-  if (!location) {
+  if (location == null) {
     location = getSelectedLocation()
   }
+
+  if (location == null) {
+    log.error ("getAPIDevice: No location defined")
+    return null
+  }
+
   final String formattedDNI = RING_API_DNI + "||" + location.id
   def d = getChildDevice(formattedDNI)
   if (!d) {
@@ -1769,20 +1765,20 @@ boolean isOAuthEnabled() {
 }
 
 //Constants
-@Field static String RING_API_DNI = "WS_API_DNI"
-@Field static String GET = "httpGet"
-@Field static String POST = 'httpPost'
-@Field static String PUT = 'httpPut'
-@Field static String JSON = 'application/json'
-@Field static String TEXT = 'text/plain'
-@Field static String FORM = 'application/x-www-form-urlencoded'
+@Field final static String RING_API_DNI = "WS_API_DNI"
+@Field final static String GET = "httpGet"
+@Field final static String POST = 'httpPost'
+@Field final static String PUT = 'httpPut'
+@Field final static String JSON = 'application/json'
+@Field final static String TEXT = 'text/plain'
+@Field final static String FORM = 'application/x-www-form-urlencoded'
 
-@Field static HashSet<String> ALARM_CAPABLES = [
+@Field final static HashSet<String> ALARM_CAPABLES = [
   "base_station_k1",
   "base_station_v1",
 ]
 
-@Field static HashSet<String> RINGABLES = [
+@Field final static HashSet<String> RINGABLES = [
   "doorbell",
   "doorbell_v3",
   "doorbell_v4",
@@ -1799,7 +1795,7 @@ boolean isOAuthEnabled() {
 ]
 
 
-@Field static Map DEVICE_TYPES = [
+@Field final static Map DEVICE_TYPES = [
   "WS_API_DNI": [name: "Ring API Virtual Device", driver: "Ring API Virtual Device", dingable: false],
   "base_station_k1": [name: "Ring Alarm Base Station", driver: "SHOULD NOT SEE THIS", dingable: false],
   "base_station_v1": [name: "Ring Alarm Base Station", driver: "SHOULD NOT SEE THIS", dingable: false],
@@ -1835,7 +1831,7 @@ boolean isOAuthEnabled() {
   "stickup_cam": [name: "Ring Original Stick Up Cam", driver: "Ring Virtual Camera", dingable: true]
 ]
 
-@Field static HashSet<String> HUB_TYPES = [
+@Field final static HashSet<String> HUB_TYPES = [
   "base_station_k1",
   "base_station_v1",
   "beams_bridge_v1"
