@@ -47,10 +47,6 @@ def logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def configure() {
-
-}
-
 def updated() {
   checkChanged("numberOfButtons", 1)
   parent.snapshotOption(device.deviceNetworkId, snapshotPolling)
@@ -62,6 +58,10 @@ def parse(String description) {
 
 def poll() {
   refresh()
+}
+
+void push(buttonNumber) {
+  log.error "Not implemented! push(buttonNumber)"
 }
 
 def refresh() {

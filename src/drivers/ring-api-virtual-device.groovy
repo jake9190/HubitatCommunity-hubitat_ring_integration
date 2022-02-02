@@ -56,10 +56,6 @@ def logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def configure() {
-  logDebug "configure()"
-}
-
 def testCommand() {
   //this functionality doesn't work right now.  don't use it.  debug/development in progress
 
@@ -823,11 +819,7 @@ List<Map> extractDeviceInfos(final Map json) {
         }
 
         if (tmpPending.command?.v1) {
-          curDeviceInfoPending.commands = []
-
-          for (final Map command in tmpPending.command.v1) {
-            curDeviceInfoPending.commands.add(command)
-          }
+          curDeviceInfoPending.commands = tmpPending.command.v1
         }
 
         if (!curDeviceInfoPending.isEmpty()) {

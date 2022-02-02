@@ -46,11 +46,6 @@ def logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def configure() {
-  logDebug "configure()"
-  refresh()
-}
-
 def parse(String description) {
   logDebug "description: ${description}"
 }
