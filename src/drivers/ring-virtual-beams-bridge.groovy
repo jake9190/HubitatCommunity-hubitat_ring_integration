@@ -19,8 +19,8 @@ metadata {
     capability "Refresh"
     capability "Sensor"
 
-    attribute "cellular", "string"
     attribute "lastCheckin", "string"
+    attribute "networkConnection", "enum", ["cellular", "ethernet", "unknown", "wifi"]
     attribute "wifi", "string"
 
     command "createDevices"
@@ -60,48 +60,38 @@ void setValues(final Map deviceInfo) {
   logTrace "deviceInfo: ${deviceInfo}"
 
   if (deviceInfo.networks != null) {
-    final Map nw = deviceInfo.networks
+    final Map networks = deviceInfo.networks
 
-    final Map ppp0 = nw.ppp0
-    if (ppp0 != null) {
-      if (ppp0.type) {
-        device.updateDataValue("ppp0Type", ppp0.type.capitalize())
-      }
-      if (ppp0.name) {
-        device.updateDataValue("ppp0Name", ppp0.name)
-      }
-      if (ppp0.rssi) {
-        device.updateDataValue("ppp0Rssi", ppp0.rssi.toString())
-      }
+    if (deviceInfo.containsKey('networkConnection')) {
+      final networkConnection = deviceInfo.networkConnection
 
-      final String ppp0Type = device.getDataValue("ppp0Type")
-      final String ppp0Name = device.getDataValue("ppp0Name")
-      final String ppp0Rssi = device.getDataValue("ppp0Rssi")
-
-      logInfo "ppp0 ${ppp0Type} ${ppp0Name} RSSI ${RSSI}"
-      checkChanged('cellular', "${ppp0Name} RSSI ${ppp0Rssi}")
-      state.ppp0 = "${ppp0Name} RSSI ${ppp0Rssi}"
+      checkChanged("networkConnection", networks.getOrDefault(networkConnection, [type: "unknown"]).type)
     }
 
-    final Map wlan0 = nw.wlan0
-    if (wlan0 != null) {
-      if (wlan0.type) {
-        device.updateDataValue("wlan0Type", wlan0.type.capitalize())
-      }
-      if (wlan0.ssid) {
-        device.updateDataValue("wlan0Ssid", wlan0.ssid)
-      }
-      if (wlan0.rssi) {
-        device.updateDataValue("wlan0Rssi", wlan0.rssi.toString())
-      }
+    // Beams bridge appears to only support wifi
+    for (final String networkKey in ['wlan0']) {
+      final Map network = networks[networkKey]
+      if (network != null) {
+        String networkType = network.type
 
-      final String wlan0Type = device.getDataValue("wlan0Type")
-      final String wlan0Ssid = device.getDataValue("wlan0Ssid")
-      final String wlan0Rssi = device.getDataValue("wlan0Rssi")
+        // Sometimes the type isn't included. Just skip updating things for now
+        if (!networkType) {
+          logDebug "Could not get network.type for ${networkKey}: ${networks}"
+          continue
+        }
 
-      logInfo "wlan0 ${wlan0Type} ${wlan0Ssid} RSSI ${RSSI}"
-      checkChanged('wifi', "${wlan0Ssid} RSSI ${wlan0Rssi}")
-      state.wlan0 = "${wlan0Ssid} RSSI ${wlan0Rssi}"
+        String networkName = network.name ?: device.getDataValue(networkKey + "Name")
+        String networkRssi = network.rssi ?: device.getDataValue(networkKey + "Rssi")
+
+        checkChangedDataValue(networkKey + "Type", networkType)
+        checkChangedDataValue(networkKey + "Name", networkName)
+        checkChangedDataValue(networkKey + "Rssi", networkRssi)
+
+        final String fullNetworkStr = networkName + " RSSI " + networkRssi
+        logInfo "${networkKey} ${networkType} ${fullNetworkStr}"
+        checkChanged(networkType, fullNetworkStr)
+        state[networkKey] = fullNetworkStr
+      }
     }
   }
 

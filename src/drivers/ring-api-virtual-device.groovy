@@ -282,7 +282,7 @@ void simpleRequest(final String type, final Map params = [:]) {
     }
 
     try {
-      sendMsg(MESSAGE_PREFIX + request)
+      interfaces.webSocket.sendMessage(MESSAGE_PREFIX + request)
     }
     catch (e) {
       log.warn "exception: ${e} cause: ${ex.getCause()}"
@@ -419,10 +419,6 @@ private List getRequests(final String type, final Map parts) {
   //cancel test above       42["message",{"body":[{"zid":"[MOTION_SENSOR_ZID]","command":{"v1":[{"commandType":"detection-test-mode.cancel","data":{}}]}}],"datatype":"DeviceInfoSetType","dst":null,"msg":"DeviceInfoSet","seq":10}]
 }
 
-void sendMsg(final String s) {
-  interfaces.webSocket.sendMessage(s)
-}
-
 void webSocketStatus(final String status) {
   logDebug "webSocketStatus(${status})"
 
@@ -514,7 +510,7 @@ def parse(String description) {
 
   if (description == "2") {
     //keep alive
-    sendMsg("2")
+    interfaces.webSocket.sendMessage("2")
   }
   else if (description == "3") {
     //Do nothing. keep alive response
@@ -731,11 +727,11 @@ def parse(String description) {
 }
 
 @Field final static List<String> deviceJsonGeneralKeys = ['acStatus', 'batteryLevel', 'batteryStatus', 'componentDevices',
-                                                          'manufacturerName', 'nextExpectedWakeup', 'zid']
+                                                          'networkConnection', 'manufacturerName', 'nextExpectedWakeup', 'zid']
 
 @Field final static List<String> deviceJsonDeviceKeys = ['batteryBackup', 'chirps', 'co', 'faulted', 'flood', 'freeze', 'groupMembers',
-                                                         'locked', 'mode', 'networks', 'powerSave', 'sensitivity', 'status', 'smoke',
-                                                         'testMode', 'version']
+                                                         'locked', 'mode', 'networks', 'networkConnection', 'powerSave', 'sensitivity',
+                                                         'status', 'smoke', 'testMode', 'version']
 
 @Field final static HashSet<String> deviceJsonGeneral
 
