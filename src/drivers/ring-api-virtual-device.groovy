@@ -1,7 +1,8 @@
 /**
  *  Ring API Virtual Device Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -17,13 +18,11 @@
  * This device holds the websocket connection that controls the alarm hub and/or the lighting bridge
  */
 
-import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import groovy.transform.Field
 
 metadata {
-  definition(name: "Ring API Virtual Device", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-api-virtual-device.groovy") {
+  definition(name: "Ring API Virtual Device", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Actuator"
     capability "Initialize"
     capability "Refresh"
@@ -31,72 +30,53 @@ metadata {
     attribute "mode", "string"
     attribute "websocket", "string"
 
-    command "createDevices", [[name: "zid", type: "STRING", description: "Optionally create only the device with the provided zid. Leave blank to create all devices"]]
+    command "createDevices"
 
-    command "websocketWatchdog", []
+    command "excludeDevice", [[name: "zid", type: "STRING",
+                               description: "Add a zid of a device to skip creating. This will also suppress messages about this device being 'missing'"]]
 
-    //command "testCommand"
+    command "excludeDeviceRemove", [[name: "zid", type: "STRING",
+                                     description: "Remove zid from exclusion list. Run 'createDevices()' after this to create the new device"]]
+
     command "setMode", [[name: "Set Mode*", type: "ENUM", description: "Set the Location's mode", constraints: ["Disarmed", "Home", "Away"]]]
 
-    command "setDebugImpulseTypeExcludeList", [[name: "Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of impulse types to skip logging. NOTE: 'command.complete' and 'error.set-info' cannot be excluded here. Use the type-specific filtering instead"]]
-    command "setDebugImpulseCommandCompleteExcludeList", [[name: "Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of command.complete commandType types to skip logging"]]
-    command "setDebugImpulseErrorSetInfoExcludeList", [[name: "Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of error.set-info commandType types to skip logging"]]
-    command "setDebugDeviceTypeIncludeList", [[name: "Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of device types to log"]]
+    command "setDebugImpulseTypeExcludeList", [[name: "Debug Impulse Type Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of impulse types to skip logging. NOTE: 'command.complete' and 'error.set-info' cannot be excluded here. Use the type-specific filtering instead"]]
+    command "setDebugImpulseCommandCompleteExcludeList", [[name: "Debug Impulse Command Complete Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of command.complete commandType types to skip logging"]]
+    command "setDebugImpulseErrorSetInfoExcludeList", [[name: "Debug Impulse Error Set Info Exclude list", type: "STRING", description: "DEBUG: Comma-delimited list of error.set-info commandType types to skip logging"]]
   }
 
   preferences {
-    input name: "suppressMissingDeviceMessages", type: "bool", title: "Suppress log messages for missing/deleted devices", defaultValue: false
+    input name: "suppressMissingDeviceMessages", type: "bool", title: "Suppress log messages for missing/deleted devices. WARNING: This option is deprecated. Use excludeDevice instead", defaultValue: false
     input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: true
     input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
     input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
 
     input name: "enableDebugPreferences", type: "bool", title: "Enable extra preferences that help with debugging", defaultValue: false
-
     if (enableDebugPreferences) {
       input name: "debugImpulseType", type: "bool", title: "DEBUG: Log msgs received that have impulses. Use setDebugImpulseTypeExcludeList to exclude impulse values", defaultValue: false
-      input name: "debugDeviceType", type: "bool", title: "DEBUG: Log msgs received that have specific device types. By default none will be logged. Use setDebugImpulseTypeIncludeList to include device type values", defaultValue: false
     }
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
-}
-
-def testCommand() {
-  //this functionality doesn't work right now.  don't use it.  debug/development in progress
-
-  //def debugDst = state.hubs.first().zid
-  //simpleRequest("manager", [dst: debugDst])
-  //simpleRequest("finddev", [dst: debugDst, adapterId: "zwave"])
-  //simpleRequest("sirenon", [dst: debugDst])
-
-  //parent.simpleRequest("master-key", [dni: device.deviceNetworkId, code: "5555", name: "Guest"])
-
-  //def zeroEpoch = Calendar.getInstance(TimeZone.getTimeZone('GMT'))
-  //zeroEpoch.setTimeInMillis(0)
-  //println zeroEpoch.format("dd-MMM-yyyy HH:mm:ss zzz")
-  //https://currentmillis.com/
 }
 
 def setMode(mode) {
   logDebug "setMode(${mode})"
   if (!state.alarmCapable) {
-    //TODO: if we ever get a this pushed to us then only allow to change it when it's different
-    parent.simpleRequest("mode-set", [mode: mode.toLowerCase(), dni: device.deviceNetworkId])
+    parent.apiRequestModeSet(device.deviceNetworkId, mode.toLowerCase())
   }
   else {
-    def msg = "Not supported from API device. Ring account has alarm present so use alarm modes!"
-    log.error msg
-    sendEvent(name: "Invalid Command", value: msg)
+    log.error "setMode supported from API device. Ring account has alarm present so use alarm modes!"
   }
 }
 
@@ -109,180 +89,235 @@ void setDebugImpulseCommandCompleteExcludeList(excludeList) {
 void setDebugImpulseErrorSetInfoExcludeList(excludeList) {
   state.debugImpulseErrorSetInfoExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as HashSet<String>
 }
-void setDebugDeviceTypeIncludeList(includeList) {
-  state.debugDeviceTypeIncludeList = includeList?.replaceAll("\\s","")?.split(",") as HashSet<String>
+
+def installed() {
+  initialize()
+}
+
+def updated() {
+  initialize()
 }
 
 def initialize() {
   logDebug "initialize()"
 
-  initializeWatchdog()
+  unschedule(silentWebsocketReconnect)
 
-  if (isWebSocketCapable()) {
-    parent.simpleRequest("tickets", [dni: device.deviceNetworkId])
-    state.seq = 0
-  }
-  else {
-    log.warn "Nothing to initialize..."
-  }
-}
-
-def initializeWatchdog() {
+  // Setup watchdog
   unschedule(watchDogChecking) // For compatibility with old installs
   unschedule(websocketWatchdog)
   if ((getChildDevices()?.size() ?: 0) != 0) {
     runEvery5Minutes(websocketWatchdog)
   }
+
+  // If hubs are defined, then setup the websocket
+  if (state.hubs != null && state.hubs.size() > 0) {
+    updateTokensAndReconnectWebSocket()
+  } else {
+    log.warn "Nothing to initialize..."
+  }
 }
 
-def updated() {
-  // Clean up some things from old versions
+void runCleanup() {
   state.remove("updatedDate")
 
-  initialize()
+  device.removeDataValue("device_id")
+
+  // Run on children
+  getChildDevices()*.runCleanup()
 }
 
-/**
- * Creates device with provided zid. If no zid is provided, all devices all created
- */
-def createDevices(zid) {
-  logDebug "createDevices(${zid})"
+// Creates all devices
+void createDevices() {
   state.createDevices = true
-  if (zid != null) {
-    state.createDevicesZid = zid
-  }
-
   refresh()
 }
 
-// @note Should only be called by Ring Connect app
-void setAlarmCapable(boolean alarmCapable) {
-  state.alarmCapable = alarmCapable
-}
-
-// @note Should only be called by Ring Connect app
-void setCreateableHubs(final HashSet<String> createableHubs) {
-  state.createableHubs = createableHubs
-}
-
-HashSet<String> getCreateableHubs() {
-  final def tmp = state.createableHubs
-  if (tmp instanceof HashSet) {
-    return tmp
+// @todo Should this delete the device as well?
+void excludeDevice(zid) {
+  if (state.excludeDevices == null) {
+    state.excludeDevices = new HashSet<String>()
   }
-  // Old versions stored createableHubs as a List. Convert it to a HashSet
-  state.createableHubs = tmp as HashSet<String>
-  return state.createableHubs
+  state.excludeDevices.add(zid.trim())
+  logInfo "Zid ${zid} added to exclusion list"
 }
 
-// @return True if the hub is creatable
-boolean isCreatableHub(final String assetKind) {
-  return getCreateableHubs().contains(assetKind)
+void excludeDeviceRemove(zid) {
+  state.excludeDevices?.remove(zid.trim())
+  logInfo "Zid ${zid} removed from exclusion list"
 }
 
-boolean isWebSocketCapable() {
-  return state.createableHubs != null && state.createableHubs.size() > 0
+// @note Should only be called by Ring Connect app
+void setEnabledHubDoorbotIds(final Set<Integer> enabledHubDoorbotIds) {
+  state.enabledHubDoorbotIds = enabledHubDoorbotIds
+  state.remove('createableHubs') // Remove old key in case it still happens to be there
 }
 
-boolean isTypePresent(kind) {
-  return getChildDevices()?.find {
-    it.getDataValue("type") == kind
-  } != null
+// @note Should only be called by Ring Connect app
+boolean isHubPresent(final Integer doorbotId) {
+  final String zid = state.hubs?.find({ it.value == doorbotId })?.key
+  return zid != null && getChildByZID(zid) != null
+}
+
+// @note Should only be called by Ring Connect app or Virtual Alarm Hub
+void updateMode(final String mode) {
+  logInfo "Mode set to ${mode.capitalize()}"
+  sendEvent(name: "mode", value: mode)
+}
+
+// @note Should only be called by Ring Connect app
+void updateTickets(final Map ticket) {
+  logDebug "updateTickets(${ticket})"
+
+  if (!ticket.host) {
+    log.error "updateTickets: Failed to get server from json: ${ticket}"
+    return
+  }
+
+  // Migrate to listing createableHubs with doorbot id and not the device kind
+  if (state.createableHubs != null) {
+    log.warn("Migrating old createableHubs list to new")
+
+    state.enabledHubDoorbotIds = ticket.assets.findAll { state.createableHubs.contains(it.kind) }.collect { it.doorbotId }.toSet()
+
+    state.remove('createableHubs')
+  }
+
+  final List enabledHubs = ticket.assets.findAll { state.enabledHubDoorbotIds.contains(it.doorbotId) }
+
+  state.hubs = enabledHubs.collectEntries { [(it.uuid): it.doorbotId] }
+  state.alarmCapable = enabledHubs.find({ALARM_CAPABLE_KINDS.contains(it.kind)}) != null
+
+  final String wsUrl = "wss://${ticket.host}/ws?authcode=${ticket.ticket}&ack=false"
+  logTrace "wsUrl: $wsUrl"
+  try {
+    interfaces.webSocket.connect(wsUrl)
+  }
+  catch (e) {
+    logDebug "initialize error: ${e.message} ${e}"
+    log.error "WebSocket connect failed: ${e}"
+    sendEvent(name: "websocket", value: "error")
+    reconnectWebSocket()
+  }
+}
+
+// @return True if the hub is enabled
+boolean isEnabledHub(final String zid) {
+  // Check if old state is still there. If it is, getting a new ticket from parent (which calls updateTickets) will update things
+  if (state.createableHubs != null && state.enabledHubDoorbotIds == null) {
+    log.warn("Detected old state. Re-initializing websocket to fix")
+    updateTokensAndReconnectWebSocket()
+    parent.schedulePeriodicMaintenance()
+    return false
+  }
+
+  return state.hubs?.containsKey(zid)
 }
 
 void refresh(final String zid=null) {
   refreshInternal(zid, false)
 }
 
-void refreshQuiet(final String zid=null) {
-  refreshInternal(zid, true)
-}
-
-void refreshInternal(final String zid=null, boolean quiet=false) {
+void refreshInternal(final String zid, boolean quiet) {
   logDebug "refresh(${zid})"
 
-  for (final Map hub in state.hubs) {
-    if (zid == null || hub.zid == zid) {
-      if (quiet) {
-        logDebug "Refreshing hub ${hub.zid} with kind ${hub.kind}"
-      } else {
-        logInfo "Refreshing hub ${hub.zid} with kind ${hub.kind}"
-      }
-      simpleRequest("refresh", [dst: hub.zid])
-    }
+  final Set zidsToRefresh = zid == null ? state.hubs.keySet() : [zid]
+  for (final String curZid in zidsToRefresh) {
+    "${quiet ? "logDebug" : "logInfo"}"("Refreshing hub ${curZid}")
+    apiWebsocketRequestRefresh(curZid)
   }
+
   if (!state.alarmCapable) {
-    parent.simpleRequest("mode-get", [mode: "disarmed", dni: device.deviceNetworkId])
+    parent.apiRequestModeGet(device.deviceNetworkId)
   }
 }
 
 // For compatibility with old installs
-def watchDogChecking() {
-    logInfo "Old watchdog function called. Setting up new watchdog."
-    initializeWatchdog()
+void watchDogChecking() {
+  logInfo "Old watchdog function called. Setting up new watchdog."
+  initialize()
 }
 
-def websocketWatchdog() {
-  if (state.lastWebSocketMsgTime == null) {
+void websocketWatchdog() {
+  final Long lastWebSocketMsgTime = state.lastWebSocketMsgTime
+
+  if (lastWebSocketMsgTime == null) {
     return
   }
 
-  logTrace "websocketWatchdog(${watchDogInterval}) now:${now()} state.lastWebSocketMsgTime:${state.lastWebSocketMsgTime }"
+  final Long timeSinceContact = (now() - lastWebSocketMsgTime) / 1000 / 60 // Time since last msg in minutes
 
-  Long timeSinceContact = (now() - state.lastWebSocketMsgTime).abs() / 1000 / 60 // Time since last msg in minutes
-
-  logDebug "Watchdog checking started. Time since last websocket msg: ${timeSinceContact} minutes"
+  logDebug "Watchdog checking. It has been ${timeSinceContact} minutes since a websocket msg was received"
 
   if (timeSinceContact >= 5) {
-    log.warn "Watchdog checking interval exceeded"
-    if (!device.currentValue("websocket").equals("connected")) {
+    logDebug "It has been ${timeSinceContact} minutes since a websocket msg was received"
+    if (device.currentValue("websocket") != "connected") {
+      log.warn "It has been ${timeSinceContact} minutes since a websocket msg was received. Reconnecting"
       reconnectWebSocket()
     }
-  }
-}
-
-void childParse(final String type, final Map params = [:]) {
-  logDebug "childParse(${type}, params)"
-  logTrace "params ${params}"
-
-  if (type == "ws-connect" || type == "tickets") {
-    initWebsocket(params.msg)
-    //42["message",{"msg":"RoomGetList","dst":[HUB_ZID],"seq":1}]
-  }
-  else if (type == "master-key") {
-    logTrace "master-key ${params.msg}"
-    //simpleRequest("setcode", [code: params.code, dst: "[HUB_ZID]" /*params.dst*/, master_key: params.msg.masterkey])
-    //simpleRequest("adduser", [code: params.name, dst: "[HUB_ZID]" /*params.dst*/])
-    //simpleRequest("enableuser", [code: params.name, dst: "[HUB_ZID]" /*params.dst*/, acess_code_zid: "[ACCESS_CODE_ZID]"])
-  }
-  else if (type == "mode-set" || type == "mode-get") {
-    logTrace "mode: ${params.msg.mode}"
-    logInfo "Mode set to ${params.msg.mode.capitalize()}"
-    sendEvent(name: "mode", value: params.msg.mode)
-  }
-  else {
-    log.error "Unhandled type ${type}"
-  }
-}
-
-void simpleRequest(final String type, final Map params = [:]) {
-  logDebug "simpleRequest(${type})"
-  logTrace "params: ${params}"
-
-  if (isParentRequest(type)) {
-    logTrace "parent request: $type"
-    parent.simpleRequest(type, [dni: params.dni, type: params.type])
-  }
-  else {
-    def request = JsonOutput.toJson(getRequests(type, params))
-    logTrace "request: ${request}"
-
-    if (request == null || type == "setcode" || type == "adduser" || type == "enableuser") {
-      return
+    else if (timeSinceContact >= 30) {
+      log.error "It has been ${timeSinceContact} minutes since a websocket msg was received, but websocket is still connected. This really shouldn't happen. Forcing a reconnect"
+      reconnectWebSocket()
     }
+    else {
+      logDebug "It has been ${timeSinceContact} minutes since a websocket msg was received, but websocket is still connected. Doing nothing for now"
+    }
+  }
+}
 
+void apiWebsocketRequestRefresh(final String dst) {
+  logDebug "apiWebsocketRequestRefresh(${dst})"
+
+  sendWebsocketRequest([dst: dst, msg: "DeviceInfoDocGetList"])
+}
+
+void apiWebsocketRequestSetCommand(final String type, final String dst, final String zid, final Map data = [:]) {
+  logDebug "apiWebsocketRequestSetCommand(${type}, ${dst}, ${zid}, ${data})"
+
+  apiWebsocketRequestDeviceInfoSet(dst, [
+    zid: zid,
+    command: [v1: [[
+      commandType: type,
+      data       : data,
+    ]]],
+  ])
+}
+
+void apiWebsocketRequestSetDevice(final String dst, final String zid, final Map data) {
+  logDebug "apiWebsocketRequestSetDevice(${dst}, ${zid}, ${data})"
+
+  apiWebsocketRequestDeviceInfoSet(dst, [zid: zid, device: [v1: data]])
+}
+
+void apiWebsocketRequestDeviceInfoSet(final String dst, final Map body) {
+  sendWebsocketRequest([
+    dst: dst,
+    msg: "DeviceInfoSet",
+    datatype: "DeviceInfoSetType",
+    body: [body], // Body is a List of Maps
+  ])
+}
+
+// Some device values have to be set indirectly through the security-panel device. The security-panel zid is saved in the hub
+void apiWebsocketRequestSetDeviceSecurityPanel(final String src, final Map data) {
+  logDebug "apiWebsocketRequestSetDeviceSecurityPanel(${src}, ${data})"
+  final String securityPanelZid = getChildByZID(src)?.getDataValue('security-panel-zid')
+  apiWebsocketRequestSetDevice(src, securityPanelZid, data)
+}
+
+void sendWebsocketRequest(Map msg) {
+  logTrace("sendWebsocketRequest(${msg})")
+
+  // Increment sequence number and add it to the request
+  state.seq = (state.seq ?: 0) + 1 //annoyingly the code editor doesn't like the ++ operator
+  msg.seq = state.seq
+
+  final String request = JsonOutput.toJson([channel: "message", msg: msg])
+  logTrace "request: ${request}"
+
+  if (request != null) {
     try {
-      interfaces.webSocket.sendMessage(MESSAGE_PREFIX + request)
+      interfaces.webSocket.sendMessage(request)
     }
     catch (e) {
       log.warn "exception: ${e} cause: ${ex.getCause()}"
@@ -291,152 +326,68 @@ void simpleRequest(final String type, final Map params = [:]) {
   }
 }
 
-private List getRequests(final String type, final Map parts) {
-  //logTrace "getRequest(parts)"
-  //logTrace "parts: ${parts} ${parts.dni}"
-  state.seq = (state.seq ?: 0) + 1 //annoyingly the code editor doesn't like the ++ operator
-
-  Map msg = [
-    dst: parts.dst,
-    seq: state.seq
-  ]
-
-  if (type == "refresh") {
-    msg.msg = "DeviceInfoDocGetList"
-  }
-  else if (type == "manager") {
-    msg.msg = "GetAdapterManagersList" // Working but not used
-  }
-  else if (type == "sysinfo") {
-    msg.msg = "GetSystemInformation" // Working but not used
-  }
-  else if (type == "finddev") {
-    //working but not used
-    msg.msg = "FindDevice"
-    msg.datatype = "FindDeviceType"
-    msg.body = [[adapterManagerName: parts.adapterId]]
-  }
-  /* not finished */
-  /*
-  else if (type == "setcode") {
-    msg.msg = "SetKeychainValue"
-    msg.datatype = "KeychainSetValueType"
-    msg.body = [[
-      zid: device.getDataValue("vault_zid"),
-      items: [
-        [
-          key: "master_key",
-          value: parts.master_key
-        ],
-        [
-          key: "access_code",
-          value: parts.code
-        ]
-      ]
-    ]]
-  }
-  else if (type == "adduser") {
-    msg.msg = "DeviceInfoSet"
-    msg.datatype= "DeviceInfoSetType",
-    msg.body = [[
-      zid: device.getDataValue("vault_zid"),
-      command: [v1: [[
-        commandType: "vault.add-user",
-        data: {
-          label: parts.name
-        }
-      ]]]
-    ]]
-  }
-  else if (type == "enableuser") {
-    msg.msg = "DeviceInfoSet"
-    msg.datatype = "DeviceInfoSetType"
-    msg.body = [[
-      zid: parts.acess_code_zid,
-      command: [v1: [[
-        commandType: "security-panel.enable-user",
-        data: [
-          label: parts.name
-        ]
-      ]]]
-    ]]
-  }
-  else if (type == "confirm") {
-    // Not complete
-    msg.msg: "SetKeychainValue"
-    msg.datatype = "KeychainSetValueType"
-    msg.body = [[
-      zid: device.getDataValue("vault_zid"),
-      items: [
-        [
-          key: "master_key",
-          value: parts.master_key
-        ]
-      ]
-    ]]
-  }
-  else if (type == "sync-code-to-device") {
-    msg.msg = "DeviceInfoSet"
-    msg.datatype = "DeviceInfoSetType"
-    msg.body = [[
-      zid: device.getDataValue("vault_zid"),
-      command: [v1: [[
-        commandType: "vault.sync-code-to-device",
-        data: [zid: parts.acess_code_zid, key: parts.key_pos]
-      ]]]
-    ]]
-  }
-  */
-  else if (type == "setcommand") {
-    msg.msg = "DeviceInfoSet"
-    msg.datatype = "DeviceInfoSetType"
-    msg.body = [[
-      zid: parts.zid,
-      command: [v1: [[
-        commandType: parts.type,
-        data: parts.data
-      ]]]
-    ]]
-  }
-  else if (type == "setdevice") {
-    msg.msg = "DeviceInfoSet"
-    msg.datatype = "DeviceInfoSetType"
-    msg.body = [[
-      zid: parts.zid,
-      device: [v1:
-        parts.data
-      ]
-    ]]
-  }
-  else {
-    return null
-  }
-
-  return ["message", msg]
-
-  //future functionality maybe
-  //test mode motion detctr 42["message",{"body":[{"zid":"[MOTION_SENSOR_ZID]","command":{"v1":[{"commandType":"detection-test-mode.start","data":{}}]}}],"datatype":"DeviceInfoSetType","dst":null,"msg":"DeviceInfoSet","seq":9}]
-  //cancel test above       42["message",{"body":[{"zid":"[MOTION_SENSOR_ZID]","command":{"v1":[{"commandType":"detection-test-mode.cancel","data":{}}]}}],"datatype":"DeviceInfoSetType","dst":null,"msg":"DeviceInfoSet","seq":10}]
-}
-
 void webSocketStatus(final String status) {
   logDebug "webSocketStatus(${status})"
 
-  if (status.startsWith('failure: ')) {
-    log.warn("Failure message from web socket: ${status.substring("failure: ".length())}")
-    sendEvent(name: "websocket", value: "failure")
-    reconnectWebSocket()
-  }
-  else if (status == 'status: open') {
-    logInfo "WebSocket is open"
-    // success! reset reconnect delay
-    sendEvent(name: "websocket", value: "connected")
-    pauseExecution(1000)
+  if (status == 'status: open') {
+    boolean isSilentWebsocketReconnect = false
+    final Long silentWebSocketReconnectTime = state.silentWebSocketReconnectTime
+
+    // This is a silent reconnect
+    if (silentWebSocketReconnectTime != null) {
+      logDebug "WebSocket is open (silent reconnect)"
+
+      // Cleanup state
+      state.remove('silentWebSocketReconnectTime')
+      unschedule(updateWebsocketAttributeClosedDelay) // Cancel pending update websocket attribute. We reconnected
+
+      Long timeSince = (now() - silentWebSocketReconnectTime).abs() / 1000
+      // If it had taken > 10 seconds to do a silent reconnect, then just do normal logging
+      if (timeSince <= 10) {
+        isSilentWebsocketReconnect = true
+        logDebug ("Silent reconnect succeeded")
+      } else {
+        log.warn ("Silent reconnect took too long (${timeSince}s > 10s)")
+      }
+    }
+
+    if (!isSilentWebsocketReconnect) {
+      logInfo "WebSocket is open"
+      sendEvent(name: "websocket", value: "connected")
+    }
+
+    refreshInternal(null, true)
+
+    // Schedule silent connect for ~4 hours from now. Should happen just before Ring automatically disconnects us
+    runIn(60 * 60 * 4 - new Random().nextInt(60), silentWebsocketReconnect)
+
     state.reconnectDelay = 1
   }
   else if (status == "status: closing") {
-    log.warn "WebSocket connection closing."
-    sendEvent(name: "websocket", value: "closed")
+    boolean isSilentWebsocketReconnect = false
+    Long silentWebSocketReconnectTime = state.silentWebSocketReconnectTime
+
+    if (silentWebSocketReconnectTime != null) {
+      Long timeSince = (now() - silentWebSocketReconnectTime) / 1000
+      // If it has taken > 10 seconds to do a silent reconnect, then just do normal logging
+      isSilentWebsocketReconnect = timeSince <= 10
+    }
+
+    if (isSilentWebsocketReconnect) {
+      logDebug "WebSocket connection closing (silent reconnect)"
+
+      // Set websocket attribute to closed after 15 seconds. Avoids rapid changes to the websocket attribute
+      // Most of the time the reconnection happens very quickly. 15 seconds should be more than enough time
+      runIn(15, updateWebsocketAttributeClosedDelay)
+    } else {
+      log.warn "WebSocket connection closing."
+      sendEvent(name: "websocket", value: "closed")
+    }
+  }
+  else if (status.startsWith('failure: ')) {
+    log.warn("Failure message from web socket: ${status.substring("failure: ".length())}")
+    sendEvent(name: "websocket", value: "failure")
+    reconnectWebSocket()
   }
   else {
     log.warn "WebSocket error, reconnecting."
@@ -445,46 +396,36 @@ void webSocketStatus(final String status) {
   }
 }
 
-void initWebsocket(json) {
-  logDebug "initWebsocket(json)"
-  logTrace "json: ${json}"
-
-  String wsUrl
-  if (json.server) {
-    wsUrl = "wss://${json.server}/socket.io/?authcode=${json.authCode}&ack=false&EIO=3&transport=websocket"
-  }
-  else if (json.host) {
-    wsUrl = "wss://${json.host}/socket.io/?authcode=${json.ticket}&ack=false&EIO=3&transport=websocket"
-
-    final HashSet<String> createableHubs = getCreateableHubs()
-
-    state.hubs = json.assets.findAll { createableHubs.contains(it.kind) }.collect { hub ->
-      [doorbotId: hub.doorbotId, kind: hub.kind, zid: hub.uuid]
-    }
-  }
-  else {
-    log.error "Can't find the server: ${json}"
-  }
-
-  logTrace "wsUrl: $wsUrl"
-
-  try {
-    interfaces.webSocket.connect(wsUrl)
-    refreshQuiet()
-  }
-  catch (e) {
-    logDebug "initialize error: ${e.message} ${e}"
-    log.error "WebSocket connect failed"
-    sendEvent(name: "websocket", value: "error")
-    //let's try again in 15 minutes
-    if (state.reconnectDelay < 900) {
-      state.reconnectDelay = 900
-    }
-    reconnectWebSocket()
-  }
+void updateTokensAndReconnectWebSocket() {
+  // This results in updateTickets being called
+  parent.apiRequestTickets(device.deviceNetworkId)
+  state.seq = 0
 }
 
-def reconnectWebSocket() {
+// Ring disconnects websocket connections every 4 hours (+ ~3 seconds). This causes unnecessary log messages
+// To reduce these messages we have a scheduled task that runs 4 hours after a websocket connection was opened
+void silentWebsocketReconnect() {
+  logDebug ("silentWebsocketReconnect")
+  state.silentWebSocketReconnectTime = now()
+
+  runInMillis(100, silentWebsocketReconnectCloseSocket)
+}
+
+// Called on a slight delay from silentWebsocketReconnect. Allows time for the silentWebSocketReconnectTime variable
+// to be set to the state
+void silentWebsocketReconnectCloseSocket() {
+  interfaces.webSocket.close()
+
+  updateTokensAndReconnectWebSocket()
+}
+
+// Sends a websocket event on a delay. Used to avoid rapid changes to the websocket attribute when we do a silent reconnect
+void updateWebsocketAttributeClosedDelay() {
+  logDebug("updateWebsocketAttributeClosedDelay called")
+  sendEvent(name: "websocket", value: "closed")
+}
+
+void reconnectWebSocket() {
   // first delay is 2 seconds, doubles every time
   state.reconnectDelay = (state.reconnectDelay ?: 1) * 2
   // don't let delay get too crazy, max it out at 30 minutes
@@ -493,7 +434,7 @@ def reconnectWebSocket() {
   }
 
   //If the socket is unavailable, give it some time before trying to reconnect
-  runIn(state.reconnectDelay, initialize)
+  runIn(state.reconnectDelay, updateTokensAndReconnectWebSocket)
 }
 
 def uninstalled() {
@@ -503,620 +444,711 @@ def uninstalled() {
 }
 
 def parse(String description) {
-  //logDebug "parse(description)"
-  //logTrace "description: ${description}"
+  final Long parseStart = now()
+
+  //logTrace "parse description: ${description}"
 
   state.lastWebSocketMsgTime = now()
 
-  if (description == "2") {
-    //keep alive
-    interfaces.webSocket.sendMessage("2")
+  def json
+  try {
+    json = parseJson(description)
+  } catch(Exception e) {
+    if (description.startsWith("42")) {
+      log.warn ("Websocket appears to be connected to older Ring API. Reconnecting. If this warning persists, report the issue.")
+      updateTokensAndReconnectWebSocket()
+    } else {
+      log.error ("Error parsing json: ${e}")
+    }
+    return
   }
-  else if (description == "3") {
-    //Do nothing. keep alive response
+
+  if (!(json instanceof Map)) {
+    if (description == "2" || description == "3") {
+      log.warn ("Websocket appears to be connected to older Ring API. Reconnecting. If this warning persists, report the issue.")
+      updateTokensAndReconnectWebSocket()
+    } else {
+      log.error ("Error parsing json. Expected to get a map. Msg was: '${description}'")
+    }
+    return
   }
-  else if (description.startsWith(MESSAGE_PREFIX)) {
-    final String msg = description.substring(MESSAGE_PREFIX.length())
-    def json = new JsonSlurper().parseText(msg)
-    //logTrace "json: $json"
 
-   boolean gotDeviceInfoDocType = false
+  boolean gotDeviceInfoDocType = false
+  boolean unsupportedMsgtypeReceived = false
+  boolean unsupportedDatatypeReceived = false
 
-    if (json[0] == "DataUpdate") {
-      final String msgtype = json[1].msg
-      final String datatype = json[1].datatype
+  final String channel = json.channel
+  final Map jsonMsg = json.msg
+  final String msgtype = jsonMsg?.msg
+  final String datatype = jsonMsg?.datatype
 
-      boolean runExtractDeviceInfos = false
+  if (channel == "DataUpdate") {
+    if (msgtype == "DataUpdate") {
+      if (datatype == "DeviceInfoDocType") {
+        gotDeviceInfoDocType = true
+      }
+      else if (datatype == "HubDisconnectionEventType") {
+        // Appears to be sent when hub is offline
+        logDebug "Ignoring a DataUpdate.DataUpdate.HubDisconnectionEventType"
+      }
+      else if (datatype == "SystemStatusType") {
+        for (final Map systemStatus in jsonMsg.body) {
+          final String statusString = systemStatus.statusString
 
-      if (msgtype == "DataUpdate") {
-        if (datatype == "DeviceInfoDocType") {
-          gotDeviceInfoDocType = true
-        }
-        else if (datatype == "HubDisconnectionEventType") {
-          // Appears to be sent when hub is offline
-        }
-        else if (datatype == "SystemStatusType") {
-          for (final Map systemStatus in json[1].body) {
-            final String statusString = systemStatus.statusString
-
-            if (statusString == "device.find.configuring.begin") {
-              logDebug "Ring Alarm hub is starting to configure a new device"
-            }
-            else if (statusString == "device.find.configuring.finished") {
-              log.info "Ring Alarm hub has finished configuring a new device. To add this device to hubitat, run 'createDevices' in the 'Ring API Virtual Device'"
-            }
-            else if (statusString == "device.find.listening") {
-              logDebug "Ring Alarm hub is listening for new devices"
-            }
-            else if (statusString == "device.find.initialize") {
-              logDebug "Ring Alarm hub is getting ready to initialize a new device"
-            }
-            else if (statusString.startsWith("device.find.error")) {
-              logDebug "Ring alarm hub encountered a ${statusString} error while configuring a new device"
-            }
-            else if (statusString == "device.remove.initialize") {
-              logDebug "Ring Alarm hub is getting ready to remove a device"
-            }
-            else if (statusString == "device.remove.listening") {
-              logDebug "Ring Alarm hub is listening for a device to remove"
-            }
-            else if (statusString == "device.remove.done") {
-              logDebug "Ring Alarm hub finished removing a device"
-            }
-            else if (statusString.startsWith("device.remove.error")) {
-              logDebug "Ring alarm hub encountered a ${statusString} error while removing a new device"
-            }
-            else {
-              log.warn ("Got an unsupported DataUpdate.SystemStatusType: ${JsonOutput.toJson(systemStatus)}")
-            }
+          if (statusString == "device.find.configuring.begin") {
+            logDebug "Ring Alarm hub is starting to configure a new device"
           }
-        }
-        else if (datatype == "RemovedDeviceType") {
-          for (final Map data in json[1].body) {
-            def child = getChildByZID(data.zid)
-            if (child != null) {
-              log.warn ("The ring device ${child} with zid ${data.zid} was removed. You may want to delete the device in hubitat as well")
-            } else {
-              log.warn ("Couldn't find anything")
-            }
+          else if (statusString == "device.find.configuring.finished") {
+            log.info "Ring Alarm hub has finished configuring a new device. To add this device to hubitat, run 'createDevices' in the 'Ring API Virtual Device'"
           }
-        }
-        else if (datatype == "DeviceAddDocType") {
-          for (final Map deviceInfo in extractDeviceInfos(json[1])) {
-            log.info "A new ring device '${deviceInfo.name ?: deviceInfo.deviceName}' of type ${deviceType} with zid ${deviceInfo.zid} was added"
+          else if (statusString == "device.find.listening") {
+            logDebug "Ring Alarm hub is listening for new devices"
           }
-        }
-        else {
-          log.warn "Received unsupported ${msgtype} datatype ${datatype}. Please report this to the developers so support can be added."
-          log.warn description
+          else if (statusString == "device.find.initialize") {
+            logDebug "Ring Alarm hub is getting ready to initialize a new device"
+          }
+          else if (statusString.startsWith("device.find.error")) {
+            logDebug "Ring alarm hub encountered a device.find.error error while configuring a new device"
+          }
+          else if (statusString == "device.remove.initialize") {
+            logDebug "Ring Alarm hub is getting ready to remove a device"
+          }
+          else if (statusString == "device.remove.listening") {
+            logDebug "Ring Alarm hub is listening for a device to remove"
+          }
+          else if (statusString == "device.remove.done") {
+            logDebug "Ring Alarm hub finished removing a device"
+          }
+          else if (statusString.startsWith("device.remove.error")) {
+            logDebug "Ring alarm hub encountered a device.remove.error error while removing a new device"
+          }
+          else {
+            log.warn("Got an unsupported DataUpdate.SystemStatusType statusString '${statusString}'")
+          }
         }
       }
-      else if (msgtype == "Passthru") {
-        if (datatype == "PassthruType") {
-          // Only parse events for hubs that were selected in the app
-          if (isCreatableHub(json[1].context.assetKind)) {
-            for (final Map deviceInfo in extractDeviceInfos(json[1])) {
-              logTrace "created deviceInfo: ${JsonOutput.toJson(deviceInfo)}"
-              sendPassthru(deviceInfo)
-            }
+      else if (datatype == "RemovedDeviceType") {
+        for (final Map data in jsonMsg.body) {
+          def child = getChildByZID(data.zid)
+          if (child != null) {
+            log.warn("The ring device ${child} with zid ${data.zid} was removed. You may want to delete the device in hubitat as well")
+          } else {
+            logTrace("Didn't find child device with ${data.zid}. Device may have never been created")
           }
-        } else {
-          log.warn "Received unsupported ${msgtype} datatype ${datatype}. Please report this to the developers so support can be added."
-          log.warn description
         }
       }
-      else if (msgtype == "SessionInfo") {
-        if (datatype == "SessionInfoType") {
-          // Ignored
-        } else {
-          log.warn "Received unsupported ${msgtype} datatype ${datatype}. Please report this to the developers so support can be added."
-          log.warn description
-        }
-      }
-      else if (msgtype == "SubscriptionTopicsInfo") {
-        if (datatype == "SubscriptionTopicType") {
-          // Ignored
-        } else {
-          log.warn "Received unsupported ${msgtype} datatype ${datatype}. Please report this to the developers so support can be added."
-          log.warn description
+      else if (datatype == "DeviceAddDocType") {
+        for (final entry in parseDeviceInfoDocType(jsonMsg, jsonMsg.context.assetId, jsonMsg.context.assetKind)) {
+          log.info "A new ring device '${entry.value.name}' of type ${entry.value.deviceType} with zid ${entry.value.zid} was added"
         }
       }
       else {
-        log.warn "Received unsupported ${msgtype}"
-        log.warn description
+        unsupportedDatatypeReceived = true
       }
     }
-    else if (json[0] == "message") {
-      final String msgtype = json[1].msg
-
-      if (msgtype == "DeviceInfoDocGetList") {
-        if (json[1].datatype == "DeviceInfoDocType") {
-          gotDeviceInfoDocType = true
-        } else if (json[1].context?.uiConnection != null) {
-          logDebug "Received weird DeviceInfoDocGetList with no datatype. Ignoring"
-          logTrace description
-        } else {
-          log.warn "Received unsupported DeviceInfoDocGetList. Please report this to the developers so support can be added."
-          log.warn description
+    else if (msgtype == "Passthru") {
+      if (datatype == "PassthruType") {
+        if (isEnabledHub(jsonMsg.context.assetId)) {
+          handlePassThruType(jsonMsg)
         }
-      }
-      else if (msgtype == "DeviceInfoSet") {
-        if (json[1].status == 0) {
-          logTrace "DeviceInfoSet with seq ${json[1].seq} succeeded."
-        } else {
-          log.warn "I think a DeviceInfoSet failed? Please report this to the developers so support can be added."
-          log.warn description
-        }
-      }
-      else if (msgtype == "SetKeychainValue") {
-        if (json[1].status == 0) {
-          logTrace "SetKeychainValue with seq ${json[1].seq} succeeded."
-        } else {
-          log.warn "I think a SetKeychainValue failed? Please report this to the developers so support can be added."
-          log.warn description
-        }
-      }
-      else {
-        log.warn "Received unsupported json[1].msg: ${msgtype}. Please report this to the developers so support can be added."
-        log.warn description
+      } else {
+        unsupportedDatatypeReceived = true
       }
     }
-    else if (json[0] == "disconnect") {
-      logInfo "Websocket timeout hit.  Reconnecting..."
-      interfaces.webSocket.close()
-      sendEvent(name: "websocket", value: "disconnect")
-      //It appears we don't disconnect fast enough because we still get a failure from the status method when we close.  Because
-      //of that failure message and reconnect there we do not need to reconnect here.
+    else if (msgtype == "SessionInfo") {
+      if (datatype == "SessionInfoType") {
+        handleSessionInfoType(jsonMsg)
+      } else {
+        unsupportedDatatypeReceived = true
+      }
+    }
+    else if (msgtype == "SubscriptionTopicsInfo") {
+      if (datatype == "SubscriptionTopicType") {
+        logDebug "Ignoring a DataUpdate.SubscriptionTopicsInfo.SubscriptionTopicType"
+      } else {
+        unsupportedDatatypeReceived = true
+      }
+    }
+    else if (msgtype == "DisconnectClient") {
+      if (datatype == "DisconnectClientType") {
+        logDebug "Ignoring a DataUpdate.DisconnectClient.DisconnectClientType"
+      } else {
+        unsupportedDatatypeReceived = true
+      }
     }
     else {
-      log.warn "Received unsupported json[0] ${json[0]}. Please report this to the developers so support can be added."
-      log.warn description
+      unsupportedMsgtypeReceived = true
     }
+  }
+  else if (channel == "message") {
+    if (msgtype == "DeviceInfoDocGetList") {
+      if (datatype == "DeviceInfoDocType") {
+        gotDeviceInfoDocType = true
+      }
+      else if (datatype == null && jsonMsg.context?.uiConnection != null) {
+        logDebug "Ignoring a message.DeviceInfoDocGetList with no datatype that has the context.uiConnection key"
+      }
+      else {
+        unsupportedDatatypeReceived = true
+      }
+    }
+    else if (msgtype == "DeviceInfoSet") {
+      // @todo The seq of these messages matches the seq of the command that was sent. This could be used to log when a specific command succeeds
+      if (jsonMsg.status == 0) {
+        logTrace "DeviceInfoSet with seq ${jsonMsg.seq} succeeded."
+      }
+      else {
+        log.warn "I think a DeviceInfoSet failed? Please report this to the developers so support can be added."
+        log.warn description
+      }
+    }
+    else if (msgtype == "RoomGetList") {
+      logDebug "Ignoring a message.RoomGetList"
+    }
+    else {
+      unsupportedMsgtypeReceived = true
+    }
+  }
+  else if (channel == "disconnect") {
+    logInfo "Websocket timeout hit. Reconnecting..."
+    interfaces.webSocket.close()
+    sendEvent(name: "websocket", value: "disconnect")
+    //It appears we don't disconnect fast enough because we still get a failure from the status method when we close.  Because
+    //of that failure message and reconnect there we do not need to reconnect here.
+  }
+  else {
+    log.warn "Received unsupported channel ${channel}. Please report this to the developers so support can be added."
+    log.warn description
+  }
 
-    if (gotDeviceInfoDocType) {
-      final String assetKind = json[1].context.assetKind
-      final String assetId = json[1].context.assetId
+  if (unsupportedMsgtypeReceived) {
+    log.warn "Received unsupported ${msgtype} on channel ${channel}. Please report this to the developers so support can be added."
+    log.warn description
+  }
+  if (unsupportedDatatypeReceived) {
+    log.warn "Received unsupported ${msgtype}.${datatype} on channel ${channel}. Please report this to the developers so support can be added."
+    log.warn description
+  }
 
-      // Only parse events for hubs that were selected in the app
-      if (isCreatableHub(assetKind)) {
-        List<Map> deviceInfos = extractDeviceInfos(json[1])
-        // If the hub for these device infos doesn't exist then create it
-        if (!getChildByZID(assetId)) {
-          createDevice([deviceType: assetKind, zid: assetId, src: json[1].src])
-          // If the hub was just created, create the rest of the devices too
-          state.createDevices = true
+  if (gotDeviceInfoDocType) {
+    final String assetId = jsonMsg.context.assetId
+
+    List<String> affectedDevices = []
+
+    // Only parse events for hubs that were selected in the app
+    if (isEnabledHub(assetId)) {
+      final String assetKind = jsonMsg.context.assetKind
+      final String hubZid = jsonMsg.src
+
+      final Long parseTimeStart = now()
+      final Map<String, Map> deviceInfos = parseDeviceInfoDocType(jsonMsg, assetId, assetKind)
+      final Long parseTime = now() - parseTimeStart
+
+      final Long sendUpdateStart = now()
+
+      // If the hub for these device infos doesn't exist then create it
+      if (!getChildByZID(assetId)) {
+        createChild(hubZid, [deviceType: assetKind, zid: assetId])
+        // If the hub was just created, create the rest of the devices too
+        state.createDevices = true
+      }
+
+      final boolean createDevices = state.createDevices && msgtype == "DeviceInfoDocGetList"
+
+      for (final entry in deviceInfos) {
+        final String zid = entry.key
+        final Map deviceInfo = entry.value
+
+        if (state.excludeDevices?.contains(zid)) {
+          logDebug("Skipping update for device ${zid} because it is excluded")
+          continue
         }
 
-        final boolean createDevices = state.createDevices
+        affectedDevices.add(deviceInfo.name)
 
-        for (final Map deviceInfo in deviceInfos) {
-          final boolean isBeamsGroup = deviceInfo.deviceType == "group.light-group.beams"
-
-          if (createDevices) {
-            def d = getChildByZID(deviceInfo.zid)
-
-            if (!d) {
-              if (isHiddenDeviceType(deviceInfo.deviceType)) {
-                  logDebug "Not queuing zid ${deviceInfo.zid} for creation because the device type '${deviceInfo.deviceType}' is hidden"
-              } else {
-                final String createDevicesZid = state.createDevicesZid
-                if (createDevicesZid != null && createDevicesZid != deviceInfo.zid) {
-                  log.warn "Not queuing zid ${deviceInfo.zid} because user requested to only create zid ${state.createDevicesZid}"
-                  continue
-                }
-
-                logInfo "Queuing zid ${deviceInfo.zid} for device creation"
-                queueCreate(deviceInfo)
-              }
-              continue
-            } else {
-              logDebug "Not queuing zid ${deviceInfo.zid} for device creation because it already exists"
-            }
-          }
-
-          if (!isBeamsGroup) {
-            sendUpdate(deviceInfo)
-          }
-        }
         if (createDevices) {
-          processCreateQueue()
+          createChild(hubZid, deviceInfo)
         }
-      }
-    }
-  }
-}
 
-@Field final static List<String> deviceJsonGeneralKeys = ['acStatus', 'batteryLevel', 'batteryStatus', 'componentDevices',
-                                                          'networkConnection', 'manufacturerName', 'nextExpectedWakeup', 'zid']
-
-@Field final static List<String> deviceJsonDeviceKeys = ['batteryBackup', 'chirps', 'co', 'faulted', 'flood', 'freeze', 'groupMembers',
-                                                         'lastConnectivityCheckError', 'locked', 'mode', 'networks', 'networkConnection',
-                                                         'powerSave', 'sensitivity', 'status', 'smoke', 'testMode', 'version']
-
-@Field final static HashSet<String> deviceJsonGeneral
-
-List<Map> extractDeviceInfos(final Map json) {
-  logDebug "extractDeviceInfos(json)"
-  //logTrace "json: ${JsonOutput.toJson(json)}"
-
-  boolean debugImpulses = enableDebugPreferences && debugImpulseType
-  boolean impulseExcludesInitialized = false
-
-  // These will be lazily initialized on first use
-  final HashSet<String> impulseTypeExcludeList = null
-  final HashSet<String> impulseCommandCompleteExcludeList = null
-  final HashSet<String> impulseErrorSetInfoExcludeList =  null
-
-  final String msg = json.msg
-
-  List<Map> deviceInfos = []
-
-  Map defaultDeviceInfo = [
-    src: json.src,
-  ]
-
-  if (json.context) {
-    defaultDeviceInfo << json.context.subMap(['assetId', 'assetKind'])
-  }
-
-  // @todo Experiment with commStatus. "error" == "offline"
-
-  final String lastCheckin = convertToLocalTimeString(new Date())
-
-  //iterate each device
-  for (final Map deviceJson in json.body) {
-    Map curDeviceInfo = defaultDeviceInfo.clone()
-
-    //logTrace "now deviceJson: ${JsonOutput.toJson(deviceJson)}"
-    if (deviceJson.isEmpty()) {
-      log.error "Received empty deviceJson"
-      deviceInfos.add(curDeviceInfo)
-      continue
-    }
-
-    String deviceType
-
-    if (msg == 'Passthru') {
-      curDeviceInfo.state = deviceJson.data.subMap(['percent', 'timeLeft', 'total', 'transition'])
-      curDeviceInfo.zid = curDeviceInfo.assetId
-      deviceType = deviceJson.type
-    } else {
-      if (deviceJson.general) {
-        final Map tmpGeneral = deviceJson.general.v1 ?: deviceJson.general.v2
-
-        if (tmpGeneral) {
-          curDeviceInfo << tmpGeneral.subMap(deviceJsonGeneralKeys)
-
-          deviceType = tmpGeneral.deviceType
-
-          // Hubs get information from multiple deviceTypes. Exclude some of the values to avoid incorrect values getting set
-          if (!HUB_PARTIAL_DEVICE_TYPES.contains(deviceType)) {
-            curDeviceInfo << tmpGeneral.subMap(['commStatus', 'fingerprint', 'lastCommTime', 'lastUpdate', 'name', 'serialNumber'])
-
-            final tamperStatus = tmpGeneral.tamperStatus
-            if (tamperStatus != null) {
-              curDeviceInfo.tamper = tamperStatus == "tamper" ? "detected" : "clear"
-            }
-          }
-        }
+        sendUpdate(assetKind, hubZid, deviceInfo)
       }
 
-      final Map tmpContext = deviceJson.context?.v1
+      final Long sendUpdateTime = now() - sendUpdateStart
 
-      if (tmpContext) {
-        curDeviceInfo << tmpContext.subMap(['batteryStatus', 'deviceName'])
-
-        if (tmpContext.device?.v1) {
-          final Map deviceV1 = tmpContext.device.v1
-
-          // alarmInfo and transitionDelayEndTimestamp are inconsistently duplicated in deviceJson.device.v1
-          curDeviceInfo << deviceV1.subMap(['alarmInfo', 'siren', 'transitionDelayEndTimestamp'])
-        }
+      if (createDevices) {
+        state.remove('createDevices') // Cleanup state
       }
 
-      if (tmpContext || deviceJson.adapter) {
-        final Map tmpAdapter = tmpContext?.adapter?.v1 ?: deviceJson.adapter?.v1
-
-        if (tmpAdapter) {
-          curDeviceInfo << tmpAdapter.subMap(['firmwareVersion', 'signalStrength'])
-
-          // 'access-code' device types publish a firmware and hardwareVersion. There's no reason to use that value
-          if (deviceType != 'access-code') {
-            final Map fingerprint = tmpAdapter?.fingerprint
-            if (fingerprint?.firmware?.version) {
-              curDeviceInfo.firmware = fingerprint.firmware.version.toString() + '.' + fingerprint.firmware.subversion.toString()
-              curDeviceInfo.hardwareVersion = fingerprint.hardwareVersion?.toString()
-            }
-          }
-        }
-      }
-
-      if (deviceJson.impulse?.v1) {
-        final List tmpImpulses = deviceJson.impulse.v1
-
-        final String firstImpulseType = tmpImpulses[0].impulseType
-
-        curDeviceInfo.impulseType = firstImpulseType
-
-        if (firstImpulseType == "comm.heartbeat") {
-          curDeviceInfo.lastCheckin = lastCheckin
-        }
-
-        Map impulses = [:]
-        for (final Map impulse in tmpImpulses) {
-          final String impulseType = impulse.impulseType
-          if (debugImpulses) {
-            if (!impulseExcludesInitialized) {
-              impulseExcludesInitialized = true
-              impulseTypeExcludeList = state.debugImpulseTypeExcludeList
-              impulseCommandCompleteExcludeList = state.debugImpulseCommandCompleteExcludeList
-              fimpulseErrorSetInfoExcludeList = state.debugImpulseErrorSetInfoExcludeList
-            }
-
-            if (impulseType == 'command.complete') {
-              if (!impulseCommandCompleteExcludeList?.contains(impulse.data?.commandType)) {
-                log.info("Special Debug: Got impulse command.complete (${impulse.data?.commandType}): ${JsonOutput.toJson(json)}")
-              }
-            }
-            else if (impulseType == 'error.set-info') {
-              if (!impulseErrorSetInfoExcludeList?.contains(impulse.data?.info?.command?.v1?.commandType)) {
-                log.info("Special Debug: Got impulse error.set-info (${impulse.data?.info?.command?.v1?.commandType}): ${JsonOutput.toJson(json)}")
-              }
-            }
-            else if (!impulseTypeExcludeList?.contains(impulseType)) {
-              log.info("Special Debug: Got impulse ${impulseType}: ${JsonOutput.toJson(json)}")
-            }
-          }
-          impulses[impulseType] = impulse.data
-        }
-        curDeviceInfo.impulses = impulses
-      }
-
-      if (deviceJson.pending) {
-        final Map curDeviceInfoPending = [:]
-
-        final Map tmpPending = deviceJson.pending
-
-        if (tmpPending.device?.v1) {
-          final Map tmpPendingDevice = tmpPending.device.v1
-
-          curDeviceInfoPending << tmpPendingDevice.subMap(['sensitivity'])
-
-          // Log if some other unsupported keys are found
-          final Set otherKeys = ['sensitivity'] - tmpPendingDevice.keySet()
-          if (otherKeys) {
-            log.warn("Found unexpected pending keys: ${otherKeys}: ${JsonOutput.toJson(deviceJson)}")
-          }
-        }
-
-        if (tmpPending.command?.v1) {
-          curDeviceInfoPending.commands = tmpPending.command.v1
-        }
-
-        // Log if some other unsupported keys are found
-        final Set otherKeys = ['device', 'command'] - tmpPending.keySet()
-        if (otherKeys) {
-          log.warn("Found unexpected pending keys: ${otherKeys}: ${JsonOutput.toJson(deviceJson)}")
-        }
-
-        if (!curDeviceInfoPending.isEmpty()) {
-          curDeviceInfo.pending = curDeviceInfoPending
-        }
-      }
-
-      if (deviceJson.device?.v1) {
-        final Map deviceV1 = deviceJson.device.v1
-
-        // I have at least one example where these keys is set to null in deviceJson.device.v1., but wasn't set in deviceJson.context.v1.device.v1.
-        // Make sure to copy it here
-        for (final String key in ['alarmInfo', 'transitionDelayEndTimestamp']) {
-          if (!curDeviceInfo.containsKey(key) && deviceV1.containsKey(key)) {
-            curDeviceInfo[key] = deviceV1[key]
-          }
-        }
-
-        curDeviceInfo << deviceV1.subMap(deviceJsonDeviceKeys)
-
-        for (final String key in ['brightness', 'level', 'volume']) {
-          final keyVal = deviceV1.get(key)
-          if (keyVal != null) {
-            curDeviceInfo[key] = (keyVal * 100).toInteger()
-          }
-        }
-
-        final motionStatus = deviceV1.motionStatus
-        if (motionStatus != null) {
-          curDeviceInfo.motion = motionStatus == "clear" ? "inactive" : "active"
-        }
-
-        final on = deviceV1.on
-        if (on != null) {
-          curDeviceInfo.switch = on ? "on" : "off"
-        }
-      }
-    }
-
-    curDeviceInfo.deviceType = deviceType
-
-    if (deviceType == null) {
-      log.warn "null device type message?: ${JsonOutput.toJson(deviceJson)}"
-    }
-
-    if (enableDebugPreferences && debugDeviceType) {
-      final HashSet<String> deviceTypeIncludeList = state.debugDeviceTypeIncludeList
-
-      if (deviceTypeIncludeList && deviceTypeIncludeList.contains(deviceType)) {
-        log.info("Special Debug: Got deviceType ${deviceType}: ${JsonOutput.toJson(deviceJson)}")
-      }
-    }
-
-    deviceInfos.add(curDeviceInfo)
-  }
-
-  logTrace "found ${deviceInfos.size()} devices"
-
-  return deviceInfos
-}
-
-void createDevice(final Map deviceInfo) {
-  logDebug "createDevice(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
-
-  final String deviceType = deviceInfo.deviceType
-
-  if (deviceType == null) {
-    log.error "Cannot create deviceType ${deviceType} because it is null"
-    return
-  }
-
-  final String mappedDeviceTypeName = DEVICE_TYPE_NAMES[deviceType]
-
-  if (mappedDeviceTypeName == null) {
-    log.error "Cannot create a ${deviceType} device. Unsupported device type!"
-    return
-  }
-
-  if (isHiddenDeviceType(deviceType)) {
-    logDebug "Cannot create ${deviceType} because it is a hidden type"
-    return
-  }
-
-  // Deeper check to enable auto-create on initialize
-  if (!isHub(deviceType)) {
-    final String parentKind = state.hubs.find { it.zid == deviceInfo.src }.kind
-
-    // Was the hub selected in the app?
-    if (!isCreatableHub(parentKind)) {
-      logDebug "not creating ${deviceInfo.name} because parent ${parentKind} was not selected in the app!"
+      logDebug "Handled msg for '${affectedDevices}' in ${now() - parseStart}ms (parseTime=${parseTime}ms, sendUpdate=${sendUpdateTime}ms)"
       return
     }
   }
 
-  final String formattedDNI = getFormattedDNI(deviceInfo.zid)
+  // @todo Log if it takes a long time to parse a message
+  logDebug "Handled websocket msg in ${now() - parseStart}ms"
+}
 
-  def d = getChildDevice(formattedDNI)
-  if (!d) {
-    // Devices that have drivers that store in devices
-    log.info "Creating a ${mappedDeviceTypeName} (${deviceType}) with dni: ${formattedDNI}"
+// Keys to copy from general.v2 for a subset of devices
+// @note lastCommTime seems to be useless for hub.redsky. It's always zero
+@Field final static List<String> generalV2Keys = [
+  'acStatus', 'batteryLevel', 'commStatus', 'componentDevices', 'fingerprint', 'lastCommTime', 'lastUpdate',
+  'manufacturerName', 'nextExpectedWakeup', 'serialNumber'
+]
+
+// Keys to copy from device.v1 for all devices
+// @note For some devices, testMode is boolean, for some it is a string (sensor.glassbreak)
+@Field final static List<String> deviceV1Keys = [
+  'alarmInfo', 'batteryBackup', 'co', 'faulted', 'flood', 'freeze', 'groupMembers', 'lastConnectivityCheckError',
+  'lastNetworkLatencyEvent', 'locked', 'networks', 'networkConnection', 'powerSave', 'sensitivity', 'siren', 'status',
+  'smoke', 'testMode', 'transitionDelayEndTimestamp'
+]
+
+/**
+ * Passes all parsed passThrus to sendPassthru
+ * @param json PassthruType msg from websocket
+ */
+void handlePassThruType(final Map json) {
+  logDebug "handlePassThruType(json)"
+  logTrace("Parsing ${json.body.size()} PassThru msg parts")
+
+  for (final Map deviceJson in json.body) {
+    final String type = deviceJson.type
+
+    Map curDeviceInfo = deviceJson.data.subMap(['percent', 'timeLeft', 'total', 'transition'])
+
+    if (type == 'firmware-update.percent-complete') {
+      curDeviceInfo.zid = deviceJson.zid
+    }
+    else if (type == 'security-panel.countdown' || type == 'speaker-event' || type == 'halo.cloud' || type == 'halo-stats.latency') {
+      curDeviceInfo.zid = json.context.assetId
+    }
+    else {
+      log.warn("Received unsupported Passthru type '${type}'. Please report this to the developers so support can be added. ${JsonOutput.toJson(json)}")
+      continue
+    }
+
+    if (state.excludeDevices?.contains(curDeviceInfo.zid)) {
+      logDebug("Skipping passThru for device ${curDeviceInfo.zid} because it is excluded")
+      continue
+    }
+
+    sendPassthru(curDeviceInfo)
+  }
+}
+
+/**
+ * Passes all parsed sessionInfos to sendSessionInfo
+ * @param json SessionInfoType msg from websocket
+ */
+void handleSessionInfoType(final Map json) {
+  logDebug "handleSessionInfoType(json)"
+  logTrace("Parsing ${json.body.size()} SessionInfo msg parts")
+
+  for (final Map deviceJson in json.body) {
+    final String zid = deviceJson.assetUuid
+
+    if (isEnabledHub(zid)) {
+      // Not checking state.excludeDevices here because SessionInfo msgs are only sent for hubs
+      sendSessionInfo([connectionStatus: deviceJson.connectionStatus, zid: zid])
+    }
+  }
+}
+
+/**
+ * @param json DeviceInfoDocType msg from websocket
+ * @param assetId Zid of the associated base station
+ * @return Map where the key is the zid of the device and the value is the deviceInfo
+ */
+Map<String, Map> parseDeviceInfoDocType(final Map json, final String assetId, final String assetKind) {
+  logDebug "parseDeviceInfoDocType(json)"
+  //logTrace "json: ${JsonOutput.toJson(json)}"
+
+  final boolean debugImpulses = enableDebugPreferences && debugImpulseType
+  boolean impulseExcludesInitialized = false
+
+  // These will be lazily initialized on first use
+  HashSet<String> impulseTypeExcludeList = null
+  HashSet<String> impulseCommandCompleteExcludeList = null
+  HashSet<String> impulseErrorSetInfoExcludeList =  null
+
+  Map<String, Map> deviceInfos = [:].withDefault { [:] }
+
+  final List<Map> jsonBody = json.body
+
+  for (final Map deviceJson in jsonBody) {
+    Map curDeviceInfo = [:]
+
+    final Map tmpGeneral = deviceJson.general?.v2
+
+    if (!tmpGeneral) {
+      log.error("parseDeviceInfoDocType Got a deviceJson without a general.v2 key: ${JsonOutput.toJson(deviceJson)}")
+
+      if (deviceJson.general?.v1) {
+        log.error("got a deviceJson.general.v1! Please let the developers know this value is still being used: ${JsonOutput.toJson(deviceJson)}")
+      }
+      continue
+    }
+
+    final String deviceType = tmpGeneral.deviceType
+
+    if (deviceType == null) {
+      log.error "parseDeviceInfoDocType Got a deviceJson with a null deviceType: ${JsonOutput.toJson(deviceJson)}"
+      continue
+    }
+
+    // Only include these device types if they have an impulse
+    if (IMPULSE_ONLY_DEVICE_TYPES.contains(deviceType)) {
+      if (!deviceJson.impulse?.v1) {
+        logDebug "parseDeviceInfoDocType Skipping impulse only deviceType ${deviceType} because it doesn't have an impulse"
+        continue
+      }
+    }
+
+    final boolean isPartialDeviceType = ALARM_HUB_PARTIAL_DEVICE_TYPES.contains(deviceType)
+
+    // Get basic keys
+    if (!HUB_COMPOSITE_DEVICES.contains(deviceType)) {
+      curDeviceInfo << tmpGeneral.subMap(['deviceType', 'zid'])
+
+      // context.v1.deviceName key seems to only show up for full refreshes, otherwise value is at general.v2.name
+      curDeviceInfo.name = tmpGeneral.name ?: deviceJson.context?.v1?.deviceName
+    } else {
+      curDeviceInfo.deviceType = assetKind
+      curDeviceInfo.zid = assetId // Use hub zid instead of child
+      curDeviceInfo[deviceType + '-zid'] = tmpGeneral.zid // Pass along the child zid
+    }
+
+    /**
+     * Begin parse deviceJson impulse.v1
+     * @note impulse.v1 is parsed early because we skip heartbeat messages
+     */
+
+    final List tmpImpulses = deviceJson.impulse?.v1
+
+    if (tmpImpulses) {
+      boolean gotHeartbeat = false
+
+      Map impulses = [:]
+      for (final Map impulse in tmpImpulses) {
+        final String impulseType = impulse.impulseType
+        if (debugImpulses) {
+          if (!impulseExcludesInitialized) {
+            impulseExcludesInitialized = true
+            impulseTypeExcludeList = state.debugImpulseTypeExcludeList
+            impulseCommandCompleteExcludeList = state.debugImpulseCommandCompleteExcludeList
+            impulseErrorSetInfoExcludeList = state.debugImpulseErrorSetInfoExcludeList
+          }
+
+          if (impulseType == 'command.complete') {
+            if (!impulseCommandCompleteExcludeList?.contains(impulse.data?.commandType)) {
+              log.debug("Special Debug: Got impulse command.complete (${impulse.data?.commandType}): ${JsonOutput.toJson(json)}")
+            }
+          }
+          else if (impulseType == 'error.set-info') {
+            if (!impulseErrorSetInfoExcludeList?.contains(impulse.data?.info?.command?.v1?.commandType)) {
+              log.debug("Special Debug: Got impulse error.set-info (${impulse.data.info.command.v1.commandType}): ${JsonOutput.toJson(json)}")
+            }
+          }
+          else if (!impulseTypeExcludeList?.contains(impulseType)) {
+            log.debug("Special Debug: Got impulse ${impulseType}: ${JsonOutput.toJson(json)}")
+          }
+        }
+
+        // Sometimes heartbeats come with other impulses, so keep building
+        if (impulseType == "comm.heartbeat") {
+          gotHeartbeat = true
+        }
+        else {
+          impulses[impulseType] = impulse.data
+        }
+      }
+
+      // Heartbeats don't have any new information. We can safely skip them. If for some weird reason an attribute
+      // was got an update in a heartbeat, that value will eventually get set when we have to do a websocket reconnect
+      if (gotHeartbeat) {
+        if (!impulses) {
+          logDebug("parseDeviceInfoDocType Got a heartbeat for '${curDeviceInfo.name}'. Skipping")
+          continue
+        }
+
+        logDebug("parseDeviceInfoDocType Got a heartbeat for '${curDeviceInfo.name}'. Not skipping because msg has other impulses")
+      }
+
+      curDeviceInfo.impulses = impulses
+      curDeviceInfo.impulseType = impulses.keySet().first()
+    }
+
+    // Hubs get information from multiple deviceTypes. Exclude some of the values to avoid incorrect values getting set
+    if (!isPartialDeviceType) {
+      /**
+       * Begin parse deviceJson general.v2
+       */
+
+      curDeviceInfo << tmpGeneral.subMap(generalV2Keys)
+
+      if (tmpGeneral.batteryStatus && BATTERY_STATUS_DEVICE_TYPES.contains(deviceType)) {
+        // @note batteryStatus is also in context.v1. It seems to only do this when the value is not updated. Just use value from general.v2
+        curDeviceInfo.batteryStatus = tmpGeneral.batteryStatus
+      }
+
+      final tamperStatus = tmpGeneral.tamperStatus
+      if (tamperStatus != null) {
+        curDeviceInfo.tamper = tamperStatus == "tamper" ? "detected" : "clear"
+      }
+
+      /**
+       * Begin parse deviceJson adapter.v1
+       */
+
+      // adapter.v1 only contains changed values when msgtype == "DataUpdate". When msgtype == "DeviceInfoDocGetList" it contains all values
+      // context.v1.adapter.v1 When present, seems to contain all values
+      final Map tmpAdapter = deviceJson.adapter?.v1
+
+      if (tmpAdapter) {
+        curDeviceInfo << tmpAdapter.subMap(['rfChannel', 'rssi', 'signalStrength'])
+
+        if (tmpAdapter.firmwareVersion) {
+          curDeviceInfo.firmware = tmpAdapter.firmwareVersion
+        }
+
+        final Map fingerprint = tmpAdapter?.fingerprint
+        if (fingerprint) {
+          if (fingerprint.firmware?.version) {
+            curDeviceInfo.firmware = fingerprint.firmware.version.toString() + '.' + fingerprint.firmware.subversion.toString()
+          }
+          curDeviceInfo.hardwareVersion = fingerprint.hardwareVersion
+        }
+      }
+    }
+
+    /**
+     * Begin parse deviceJson pending
+     */
+
+    final Map tmpPending = deviceJson.pending
+    if (tmpPending) {
+      curDeviceInfo.pending = [:]
+
+      if (tmpPending.device?.v1) {
+        curDeviceInfo.pending << tmpPending.device.v1.subMap(['sensitivity'])
+      }
+
+      if (tmpPending.command?.v1) {
+        curDeviceInfo.pending.commands = tmpPending.command.v1
+      }
+    }
+
+    /**
+     * Begin parse deviceJson device.v1
+     */
+
+    // device.v1 only contains changed values when msgtype == "DataUpdate". When msgtype == "DeviceInfoDocGetList" it contains all values
+    // When present, context.v1.device.v1 seems to contain all values
+    // @note Some keys, like alarminfo and transitionDelayEndTimestamp, are set to null on disable, but in subsequent
+    //       message are omitted entirely. This could mean that there are some scenarios where
+    //       updates to those values are missed entirely. We may need to handle this
+    final Map deviceV1 = deviceJson.device?.v1
+
+    if (deviceV1) {
+      final boolean isSecurityPanel = isPartialDeviceType && deviceType == 'security-panel'
+
+      curDeviceInfo << deviceV1.subMap(deviceV1Keys)
+      if (!isSecurityPanel) {
+        curDeviceInfo << deviceV1.subMap(['chirps'])
+      }
+
+      // Hubs get information from multiple deviceTypes. Exclude some of the values to avoid incorrect values getting set
+      if (!isPartialDeviceType) {
+        for (final entry in deviceV1.subMap(['brightness', 'level', 'volume'])) {
+          curDeviceInfo[entry.key] = (entry.value * 100).toInteger()
+        }
+      }
+      else if (isSecurityPanel) {
+        // security-panel stores some configuration for other devices. Break those out here
+        final String mode = deviceV1.mode
+        if (mode != null) {
+          curDeviceInfo.mode = mode
+
+          // device.v1.devices is only included when mode is 'some' or 'all', so fall back to context.v1.device.v1.devices
+          final Map deviceV1Devices = deviceV1.devices ?: deviceJson.context?.v1?.device?.v1?.devices
+
+          if (deviceV1Devices == null) {
+            log.error("Failed to get security-panel device.v1.devices: ${JsonOutput.toJson(deviceJson)}")
+          }
+          else {
+            // When mode changes, get values from devices to update bypassed, deviceActive, and sensorReporting
+            for (final entry in deviceV1Devices) {
+              Map extraDeviceInfo = [zid: entry.key]
+
+              if (entry.value.bypassed != null) {
+                extraDeviceInfo.bypassed = entry.value.bypassed.toString()
+              }
+
+              if (entry.value.modes != null) {
+                // If the right mode key value is not null, then this device is active
+                extraDeviceInfo.deviceActive = entry.value.modes[mode] != null
+              }
+
+              if (entry.value.sensorReporting != null) {
+                extraDeviceInfo.sensorReporting = entry.value.sensorReporting
+              }
+
+              // Merge these values into any existing deviceInfos
+              deviceInfos[entry.key] << extraDeviceInfo
+            }
+          }
+        }
+
+        for (final entry in deviceV1.chirps) {
+          // Merge these values into any existing deviceInfos
+          deviceInfos[entry.key] << [
+            chirp: entry.value.type,
+            zid: entry.key
+          ]
+        }
+      }
+
+      final version = deviceV1.version
+      if (version != null) {
+        if (version instanceof Map) {
+          if (deviceType == 'adapter.ringnet') {
+            // firmwareVersion is also stored in adapter.v1 for switch.multilevel.beams
+            if (version?.firmwareVersion != null) {
+              curDeviceInfo.firmware = version.firmwareVersion
+            }
+          } else {
+            if (version?.buildNumber != null && version?.softwareVersion != null) {
+              curDeviceInfo.firmware = version.softwareVersion + ' (' + version.buildNumber + ')'
+            }
+          }
+        } else {
+          curDeviceInfo.firmware = version
+        }
+      }
+
+      final motionStatus = deviceV1.motionStatus
+      if (motionStatus != null) {
+        curDeviceInfo.motion = motionStatus == "clear" ? "inactive" : "active"
+      }
+
+      final on = deviceV1.on
+      if (on != null) {
+        curDeviceInfo.switch = on ? "on" : "off"
+      }
+    }
+
+    // Merge curDeviceInfo into any existing deviceInfos
+    deviceInfos[curDeviceInfo.zid] << curDeviceInfo
+  }
+
+  logTrace "Parsed ${jsonBody.size()} DeviceInfoDocType msg parts"
+
+  return deviceInfos
+}
+
+void createChild(final String hubZid, final Map deviceInfo) {
+  if (!getChildByZID(deviceInfo.zid)) {
+    final String deviceType = deviceInfo.deviceType
+
+    final String mappedDeviceTypeName = DEVICE_TYPE_NAMES[deviceType]
+    if (mappedDeviceTypeName == null) {
+      log.error "Cannot create a ${deviceType} device because it is unsupported"
+      return
+    }
+
+    final String formattedDNI = getFormattedDNI(deviceInfo.zid)
+
     try {
-      d = addChildDevice("ring-hubitat-codahq", mappedDeviceTypeName, formattedDNI,
-                         [label: deviceInfo.name ?: mappedDeviceTypeName])
+      def d = addChildDevice("ring-hubitat-codahq", mappedDeviceTypeName, formattedDNI,
+                             [label: deviceInfo.name ?: mappedDeviceTypeName])
+      setInitialDeviceDataValues(d, deviceInfo.deviceType, hubZid, deviceInfo)
 
-      setInitialDeviceDataValues(d, deviceInfo.deviceType, deviceInfo)
-
-      log.info "Successfully added ${deviceType} with dni: ${formattedDNI}"
+      log.info "Created a ${mappedDeviceTypeName} (${deviceType}) with dni: ${formattedDNI}"
     }
     catch (e) {
+      log.info "Error creating ${mappedDeviceTypeName} (${deviceType}) with dni: ${formattedDNI}: ${e}"
       if (e.toString().replace(mappedDeviceTypeName, "") ==
         "com.hubitat.app.exception.UnknownDeviceTypeException: Device type '' in namespace 'ring-hubitat-codahq' not found") {
-        log.error '<b style="color: red;">The "' + mappedDeviceTypeName + '" driver was not found and needs to be installed. NOTE: If you installed this using HPM, you can fix this by going to "Update" in HPM and selecting the optional drivers you need.</b>\r\n'
-      }
-      else {
-        log.error "Error adding device: ${e}"
+        log.error '<b style="color: red;">The "' + mappedDeviceTypeName + '" driver was not found and needs to be installed. NOTE: If you installed this using HPM, you can fix this by going to "Update" in HPM and selecting the optional drivers you need.</b>'
       }
     }
   }
   else {
-    logDebug "Device ${d} already exists. No need to create."
+    logDebug "Not creating device for zid ${deviceInfo.zid} because it already exists"
   }
 }
 
-void setInitialDeviceDataValues(d, final String type, final Map deviceInfo) {
+void setInitialDeviceDataValues(d, final String type, final String hubZid, final Map deviceInfo) {
   d.updateDataValue("zid",  deviceInfo.zid)
   d.updateDataValue("fingerprint", deviceInfo.fingerprint ?: "N/A")
+  d.updateDataValue("hardwareVersion", deviceInfo.hardwareVersion?.toString() ?: "N/A")
   d.updateDataValue("manufacturer", deviceInfo.manufacturerName ?: "Ring")
   d.updateDataValue("serial", deviceInfo.serialNumber ?: "N/A")
   d.updateDataValue("type", type)
-  d.updateDataValue("src", deviceInfo.src)
+  d.updateDataValue("src", hubZid)
 }
 
-void queueCreate(final Map deviceInfo) {
-  if (state.queuedCreates == null) {
-    state.queuedCreates = []
-  }
-  state.queuedCreates.add(deviceInfo)
-}
-
-void processCreateQueue() {
-  for (final Map deviceInfo in state.queuedCreates) {
-    createDevice(deviceInfo)
-    sendUpdate(deviceInfo)
-  }
-  state.createDevices = false
-  state.remove("queuedCreates")
-  state.remove("createDevicesZid")
-}
-
-void sendUpdate(final Map deviceInfo) {
-  logDebug "sendUpdate(deviceInfo)"
-  //logTrace "deviceInfo: ${deviceInfo}"
-
-  if (deviceInfo == null) {
-    log.error "sendUpdate deviceInfo is null"
-    return
-  }
+void sendUpdate(final String assetKind, final String hubZid, final Map deviceInfo) {
+  logDebug "sendUpdate for zid ${deviceInfo.zid}"
 
   final String deviceType = deviceInfo.deviceType
 
-  if (deviceType == null) {
-    log.error "sendUpdate deviceInfo.deviceType is null"
-    return
-  }
-
-  def d = getChildByZID(isHiddenDeviceType(deviceType) ? deviceInfo.assetId : deviceInfo.zid)
+  def d = getChildByZID(deviceInfo.zid)
   if (!d) {
     if (!suppressMissingDeviceMessages) {
-      if (DEVICE_TYPE_NAMES.keySet().contains(deviceType)) {
-        log.warn "Couldn't find device '${deviceInfo.name ?: deviceInfo.deviceName}' of type ${deviceType} with zid ${deviceInfo.zid} (Run createDevice() to create missing devices)"
+      if (DEVICE_TYPE_NAMES.containsKey(deviceType)) {
+        logMissingDeviceMsg("sendUpdate", deviceInfo.zid, deviceInfo.name)
       } else {
-        log.warn "Device ${deviceInfo.name ?: deviceInfo.deviceName} of type ${deviceType} with zid ${deviceInfo.zid} is not currently supported"
+        log.warn "Device ${deviceInfo.name} of type ${deviceType} with zid ${deviceInfo.zid} is not currently supported"
+        log.warn (JsonOutput.toJson(deviceInfo))
       }
     }
   }
   else {
-    logDebug "Updating device ${d}"
     d.setValues(deviceInfo)
 
     // Old versions set device data fields incorrectly. Hubitat v2.2.4 appears to clean up
     // the bad data fields. Reproduce the necessary fields
     if (d.getDataValue('zid') == null) {
-      if (!HUB_PARTIAL_DEVICE_TYPES.contains(deviceType)) {
-        log.warn "Device ${d} is missing 'zid' data field. Attempting to fix"
-        setInitialDeviceDataValues(d, deviceInfo.deviceType, deviceInfo)
-      }
-    } else if (deviceType ==  'hub.redsky' || deviceType == 'hub.kili') {
+      log.warn "Device ${d} is missing 'zid' data field. Fixing..."
+      setInitialDeviceDataValues(d, deviceInfo.deviceType, hubZid, deviceInfo)
+    }
+    else if (ALARM_CAPABLE_KINDS.contains(deviceType)) {
       // The fix above was applied to the hub.* datatypes with incorrect values. Check for a mismatch and update as necessary
-      if (d.getDataValue('type') == deviceType) {
-        log.warn "Device ${d} has incorrect 'type' data field '${d.getDataValue('type')}. Attempting to fix"
-        setInitialDeviceDataValues(d, deviceInfo.assetKind, deviceInfo)
+      final String type = d.getDataValue('type')
+      if (type != deviceType) {
+        log.warn "Device ${d} has incorrect 'type' data field '${type}'. Fixing..."
+        setInitialDeviceDataValues(d, assetKind, hubZid, deviceInfo)
       }
     }
   }
 }
 
 void sendPassthru(final Map deviceInfo) {
-  logDebug "sendPassthru(deviceInfo)"
-  //logTrace "deviceInfo: ${deviceInfo}"
+  logDebug "sendPassthru for zid ${deviceInfo.zid}"
 
   def d = getChildByZID(deviceInfo.zid)
   if (!d) {
-    if (!suppressMissingDeviceMessages) {
-      log.warn "Couldn't find device ${deviceInfo.zid} for passthru"
-    }
+    logMissingDeviceMsg("passthru", deviceInfo.zid)
+  } else {
+    d.setPassthruValues(deviceInfo)
   }
-  else {
-    logDebug "Passthru for device ${d}"
+}
+
+void sendSessionInfo(final Map deviceInfo) {
+  logDebug "sendSessionInfo for zid ${deviceInfo.zid}"
+
+  def d = getChildByZID(deviceInfo.zid)
+  if (!d) {
+    logMissingDeviceMsg("sessionInfo", deviceInfo.zid)
+  } else {
     d.setValues(deviceInfo)
   }
 }
 
-private String convertToLocalTimeString(final Date dt) {
-  final TimeZone timeZone = location?.timeZone
-  if (timeZone) {
-    return dt.format("yyyy-MM-dd h:mm:ss a", timeZone)
-  }
-  else {
-    return dt.toString()
+void logMissingDeviceMsg(final String source, final String zid, final String name = null) {
+  if (!suppressMissingDeviceMessages) {
+    log.warn "Couldn't find device ${zid} with name '${name}' for ${source} (Run createDevices() to create missing devices, or use excludeDevice(${zid}) to suppress this warning)"
   }
 }
 
@@ -1125,26 +1157,16 @@ String getFormattedDNI(final String id) {
 }
 
 def getChildByZID(final String zid) {
-  logDebug "getChildByZID(${zid})"
-  def d = getChildDevice(getFormattedDNI(zid))
-  logTrace "Found child ${d}"
-  return d
+  return getChildDevice(getFormattedDNI(zid))
 }
 
-boolean isParentRequest(type) {
-  return ["refresh-security-device"].contains(type)
-}
-
-boolean isHub(final String kind) {
-  return HUB_TYPES.contains(kind)
-}
-
-boolean isHiddenDeviceType(final String deviceType) {
-  return HIDDEN_DEVICES.contains(deviceType)
-}
+@Field final static HashSet<String> ALARM_CAPABLE_KINDS = [
+  "base_station_k1",
+  "base_station_v1",
+]
 
 @Field final static Map<String, String> DEVICE_TYPE_NAMES = [
-  //physical alarm devices
+  // Alarm devices
   "sensor.contact": "Ring Virtual Contact Sensor",
   "sensor.tilt": "Ring Virtual Contact Sensor",
   "sensor.zone": "Ring Virtual Contact Sensor",
@@ -1157,30 +1179,22 @@ boolean isHiddenDeviceType(final String deviceType) {
   "lock": "Ring Virtual Lock",
   "security-keypad": "Ring Virtual Keypad",
   "security-panic": "Ring Virtual Panic Button",
-  "base_station_k1": "Ring Virtual Alarm Hub Pro",
+  "base_station_k1": "Ring Virtual Alarm Hub",
   "base_station_v1": "Ring Virtual Alarm Hub",
   "siren": "Ring Virtual Siren",
   "siren.outdoor-strobe": "Ring Virtual Siren",
   "switch": "Ring Virtual Switch",
   "bridge.flatline": "Ring Virtual Retrofit Alarm Kit",
-  //virtual alarm devices
-  "adapter.zwave": "Ring Z-Wave Adapter",
-  "adapter.zigbee": "Ring Zigbee Adapter",
-  "security-panel": "Ring Alarm Security Panel",
-  "hub.redsky": "Ring Alarm Base Station",
-  "hub.kili": "Ring Alarm Pro Base Station",
-  "access-code.vault": "Code Vault",
-  "access-code": "Access Code",
-  //physical beams devices
+  // Beams devices
   "switch.multilevel.beams": "Ring Virtual Beams Light",
   "motion-sensor.beams": "Ring Virtual Beams Motion Sensor",
   "group.light-group.beams": "Ring Virtual Beams Group",
   "beams_bridge_v1": "Ring Virtual Beams Bridge",
-  //virtual beams devices
-  "adapter.ringnet": "Ring Beams Ringnet Adapter"
 ]
 
-@Field final static HashSet<String> HIDDEN_DEVICES = [
+// The alarm hub and beams bridge are made up of multiple composite devices. Messages for these device types will be
+// rolled up into the alarm hub
+@Field final static HashSet<String> HUB_COMPOSITE_DEVICES = [
   "access-code.vault",
   "access-code",
   "adapter.ringnet",
@@ -1191,18 +1205,24 @@ boolean isHiddenDeviceType(final String deviceType) {
   "hub.redsky",
 ]
 
-@Field final static HashSet<String> HUB_PARTIAL_DEVICE_TYPES = [
-  'access-code',
-  'access-code.vault',
-  'adapter.zigbee',
-  'adapter.zwave',
-  'security-panel'
+@Field final static HashSet<String> IMPULSE_ONLY_DEVICE_TYPES = [
+  "access-code",
+  "access-code.vault",
+  "adapter.zigbee",
+  "adapter.zwave",
 ]
 
-@Field final static HashSet<String> HUB_TYPES = [
-  "base_station_k1",
-  "base_station_v1",
-  "beams_bridge_v1"
+@Field final static HashSet<String> BATTERY_STATUS_DEVICE_TYPES = [
+  "hub.kili",
+  "hub.redsky",
+  "range-extender.zwave",
+  "security-keypad"
 ]
 
-@Field final static String MESSAGE_PREFIX = "42"
+@Field final static HashSet<String> ALARM_HUB_PARTIAL_DEVICE_TYPES = [
+  "access-code",
+  "access-code.vault",
+  "adapter.zigbee",
+  "adapter.zwave",
+  "security-panel"
+]

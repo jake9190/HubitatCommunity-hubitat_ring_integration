@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Alarm Hub Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -16,10 +17,9 @@
 import groovy.transform.Field
 
 metadata {
-  definition(name: "Ring Virtual Alarm Hub", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-alarm-hub.groovy") {
+  definition(name: "Ring Virtual Alarm Hub", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Actuator"
-    capability "Audio Volume"
+    capability "AudioVolume"
     capability "Alarm"
     capability "Refresh"
     capability "PowerSource"
@@ -27,16 +27,20 @@ metadata {
 
     attribute "acStatus", "enum", ["brownout", "connected", "disconnected"]
     attribute "batteryBackup", "string"
+    attribute "batteryStatus", "enum", ["charged", "charging", "failed", "full", "low", "malfunction", "none", "ok", "warn"]
     attribute "brightness", "number"
     attribute "coAlarm", "enum", ["active", "inactive"]
+    attribute "cellular", "string"
+    attribute "connectionStatus", "enum", ["asset-cell-backup", "backing-up", "connected", "connecting", "extended-cell-backup",
+                                           "restoring", "updating"]
     attribute "countdownTimeLeft", "number"
     attribute "countdownTotal", "number"
     attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
-    attribute "cellular", "string"
     attribute "ethernet", "string"
     attribute "entryDelay", "enum", ["active", "inactive"]
     attribute "exitDelay", "enum", ["active", "inactive"]
     attribute "fireAlarm", "enum", ["active", "inactive"]
+    attribute "firmware", "string"
     attribute "mode",  "enum", ["off", "home", "away"]
     attribute "networkConnection", "enum", ["cellular", "ethernet", "unknown", "wifi"]
     attribute "wifi", "string"
@@ -44,6 +48,7 @@ metadata {
     command "setBrightness", [[name: "Set LED Brightness*", type: "NUMBER", range: "0..100", description: "Choose a value between 0 and 100"]]
     command "setMode", [[name: "Set Mode*", type: "ENUM", description: "Set the Ring Alarm's mode", constraints: ["Disarmed", "Home", "Away"]]]
     command "sirenTest"
+    command "sirenTestCancel"
     command "createDevices"
   }
 
@@ -56,28 +61,24 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-@Field final static Integer VOLUME_INC = 5 //somebody can make this a preference if they feel strongly about it
+@Field final static Integer VOLUME_INC = 5
 
-def createDevices() {
-  logDebug "Attempting to create devices."
-  parent.createDevices(device.getDataValue("zid"))
-}
+void createDevices() { parent.createDevices() }
 
-def refresh() {
-  logDebug "Attempting to refresh."
-  parent.refresh(device.getDataValue("zid"))
+void refresh() {
+  parent.refresh(device.getDataValue("src"))
 }
 
 def setMode(mode) {
@@ -93,27 +94,20 @@ def setMode(mode) {
     data = ["mode": "all"]
   }
   else {
-    logInfo "${device.label} already set to ${mode}.  No change necessary"
+    logInfo "${device.label} already set to ${mode}. No change necessary"
     return
   }
 
-  parent.simpleRequest("setcommand", [type: "security-panel.switch-mode", zid: device.getDataValue("security-panel-zid"), dst: device.getDataValue("src"), data: data])
+  parent.apiWebsocketRequestSetCommand("security-panel.switch-mode", device.getDataValue("src"), device.getDataValue("security-panel-zid"), data)
 }
 
-/*alarm capabilities start*/
-
 def off() {
-  logDebug "Attempting to stop siren and/or strobe"
-  final String  alarm = device.currentValue("alarm")
-  logTrace "previous value alarm: $alarm"
-  parent.simpleRequest("setcommand", [type: "security-panel.silence-siren", zid: device.getDataValue("security-panel-zid"), dst: device.getDataValue("src"), data: {
-  }])
+  logTrace "previous value alarm: ${device.currentValue("alarm")}"
+  parent.apiWebsocketRequestSetCommand("security-panel.silence-siren", device.getDataValue("src"), device.getDataValue("security-panel-zid"))
 }
 
 def siren() {
-  logDebug "Attempting to turn on siren."
-  parent.simpleRequest("setcommand", [type: "security-panel.sound-siren", zid: device.getDataValue("security-panel-zid"), dst: device.getDataValue("src"), data: {
-  }])
+  parent.apiWebsocketRequestSetCommand("security-panel.sound-siren", device.getDataValue("src"), device.getDataValue("security-panel-zid"))
 }
 
 def strobe() {
@@ -121,7 +115,6 @@ def strobe() {
 }
 
 def both() {
-  logDebug "Attempting to turn on siren and strobe."
   strobe()
   siren()
 }
@@ -131,130 +124,107 @@ def sirenTest() {
     log.warn "Please disarm the alarm before testing the siren."
     return
   }
-  //siren-test.stop to cancel
-  parent.simpleRequest("setcommand", [type: "siren-test.start", zid: device.getDataValue("security-panel-zid"), dst: null, data: {
-  }])
+  parent.apiWebsocketRequestSetCommand("siren-test.start", null, device.getDataValue("security-panel-zid"))
 }
-/*alarm capabilities end*/
 
-def setVolume(vol) {
-  logDebug "Attempting to set volume."
-  vol > 100 ? 100 : vol
-  vol < 0 ? 0 : vol
+def sirenTestCancel() {
+  parent.apiWebsocketRequestSetCommand("siren-test.stop", device.getDataValue("src"), device.getDataValue("security-panel-zid"))
+}
 
-  if (vol == 0) {
-    if (checkChanged("mute", "muted")) {
-      state.prevVolume = device.currentValue("volume")
-    }
-  }
-  else {
-    checkChanged("mute", "unmuted")
-  }
+void setVolume(volumelevel) {
+  // Value must be in [0, 100]
+  volumelevel = Math.min(Math.max(volumelevel == null ? 50 : volumelevel.toInteger(), 0), 100)
 
-  if (device.currentValue("volume") != vol) {
-    logTrace "requesting volume change from ${device.currentValue("volume")} to ${vol}"
-    Map data = ["volume": (vol == null ? 50 : vol).toDouble() / 100]
-    parent.simpleRequest("setdevice", [zid: getHubZid(), dst: null, data: data])
+  Integer currentVolume = device.currentValue("volume")
+
+  if (currentVolume != volumelevel) {
+    logTrace "requesting volume change to ${volumelevel}"
+    Map data = [volume: volumelevel.toDouble() / 100]
+    parent.apiWebsocketRequestSetDevice(null, getHubZid(), data)
   }
   else {
     logInfo "Already at volume."
-    sendEvent(name: "volume", value: device.currentValue("volume"))
+    sendEvent(name: "volume", value: currentVolume)
   }
 }
 
-def volumeUp() {
-  logDebug "Attempting to raise volume."
-  def nextVol = device.currentValue("volume") + VOLUME_INC
+void volumeUp() {
+  Integer currentVolume = device.currentValue("volume")
+  Integer nextVol = currentVolume + VOLUME_INC
   if (nextVol <= 100) {
     setVolume(nextVol)
   }
   else {
     logInfo "Already max volume."
-    sendEvent(name: "volume", value: device.currentValue("volume"))
+    sendEvent(name: "volume", value: currentVolume)
   }
 }
 
-def volumeDown() {
-  logDebug "Attempting to lower volume."
-  def nextVol = device.currentValue("volume") - VOLUME_INC
+void volumeDown() {
+  Integer currentVolume = device.currentValue("volume")
+  Integer nextVol = currentVolume - VOLUME_INC
   if (nextVol >= 0) {
     setVolume(nextVol)
   }
   else {
     logInfo "Already min volume."
-    sendEvent(name: "volume", value: device.currentValue("volume"))
+    sendEvent(name: "volume", value: currentVolume)
   }
 }
 
-def mute() {
-  logDebug "Attempting to mute."
+void mute() {
   setVolume(0)
 }
 
-def unmute() {
-  logDebug "Attempting to unmute."
+void unmute() {
   setVolume(state.prevVolume)
 }
 
 def setBrightness(brightness) {
-  logDebug "Attempting to set brightness ${brightness}."
-  brightness = brightness > 100 ? 100 : brightness
-  brightness = brightness < 0 ? 0 : brightness
-  Map data = ["brightness": (brightness == null ? 100 : brightness).toDouble() / 100]
-  parent.simpleRequest("setdevice", [zid: getHubZid(), dst: device.getDataValue("src"), data: data])
+  // Value must be in [0, 100]
+  brightness = Math.min(Math.max(brightness == null ? 100 : brightness.toInteger(), 0), 100)
+
+  Map data = [brightness: brightness.toDouble() / 100]
+  parent.apiWebsocketRequestSetDevice(device.getDataValue("src"), getHubZid(), data)
 }
 
 String getHubZid() {
-  String hubZid = device.getDataValue("hub.redsky-zid")
-  if (hubZid == null) {
-    hubZid = device.getDataValue("hub.kili-zid")
-  }
-  return hubZid
+  return device.getDataValue("hub.redsky-zid") ?: device.getDataValue("hub.kili-zid")
 }
 
 void setValues(final Map deviceInfo) {
-  logDebug "setValues(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+  logDebug "setValues(${deviceInfo})"
 
-  if (state.containsKey('lastCommTime')) {
-    log.warn ("Cleaning up old state/data values from ${device}")
-    state.remove('lastCommTime')
-    state.remove('nextExpectedWakeup')
-    state.remove('signalStrength')
-    device.removeDataValue('fingerprint') // Hub doesn't appear to have a fingerprint. Previously value was coming from dataType access-code, which doesn't make sense
-    device.removeDataValue('null-zid')
-  }
-
-  final String deviceType = deviceInfo.deviceType
-  if (CHILD_ZID_DEVICE_TYPES.contains(deviceType)) {
-    checkChangedDataValue(deviceType + '-zid', deviceInfo.zid)
+  // Save some special zids
+  for (final entry in deviceInfo.subMap(['hub.kili-zid', 'hub.redsky-zid', 'security-panel-zid'])) {
+    checkChangedDataValue(entry.key, entry.value)
   }
 
   if (deviceInfo.mode != null) {
     final String mappedMode = MODES.get(deviceInfo.mode)
 
     if (checkChanged("mode", mappedMode)) {
-      parent.childParse('mode-set', [msg: [mode: mappedMode]])
-    }
+      parent.updateMode(mappedMode)
 
-    if (mappedMode == "off") {
-      sendEvent(name: "countdownTimeLeft", value: 0)
-      sendEvent(name: "countdownTotal", value: 0)
-      checkChanged("entryDelay", "inactive")
-      checkChanged("exitDelay", "inactive")
-    }
-
-    if (syncRingToHsm) {
-      final Map<String, String> hsmMode = RING_TO_HSM_MODE_MAP[mappedMode]
-
-      if (location.hsmStatus != hsmMode.status) {
-        logInfo "Setting HSM to ${hsmMode.set}"
-        logTrace "mode: ${mappedMode} hsmStatus: ${location.hsmStatus}"
-        sendLocationEvent(name: "hsmSetArm", value: hsmMode.set)
+      if (mappedMode == "off") {
+        sendEvent(name: "countdownTimeLeft", value: 0)
+        sendEvent(name: "countdownTotal", value: 0)
+        checkChanged("entryDelay", "inactive")
+        checkChanged("exitDelay", "inactive")
       }
 
-      if (cancelAlertsOnDisarm && mappedMode == "off") {
-        sendLocationEvent(name: "hsmSetArm", value: "cancelAlerts")
+      if (syncRingToHsm) {
+        final Map<String, String> hsmMode = RING_TO_HSM_MODE_MAP[mappedMode]
+
+        if (location.hsmStatus != hsmMode.status) {
+          logInfo "Setting HSM to ${hsmMode.set}"
+          logTrace "mode: ${mappedMode} hsmStatus: ${location.hsmStatus}"
+          sendLocationEvent(name: "hsmSetArm", value: hsmMode.set)
+        }
+
+        if (mappedMode == "off" && cancelAlertsOnDisarm) {
+          sendLocationEvent(name: "hsmSetArm", value: "cancelAlerts")
+        }
       }
     }
   }
@@ -273,7 +243,9 @@ void setValues(final Map deviceInfo) {
 
   // Use containsKey instead of null chuck because alarmInfo == null means an alarm was cleared
   if (deviceInfo.containsKey('alarmInfo')) {
-    final alarmInfo = deviceInfo.alarmInfo
+    // @note Other possible values of alarmInfo.state: 'panic'
+
+    final alarmInfo = deviceInfo.alarmInfo?.state
     checkChanged("entryDelay", alarmInfo == "entry-delay" ? "active" : "inactive")
 
     // These duplicate what the co/smoke alarm devices already display
@@ -281,6 +253,7 @@ void setValues(final Map deviceInfo) {
     checkChanged("fireAlarm", alarmInfo == "fire-alarm" ? "active" : "inactive")
   }
 
+  // Use containsKey instead of null chuck because lastConnectivityCheckError == null means an connectivity error was resolved
   if (deviceInfo.containsKey('lastConnectivityCheckError')) {
     if (deviceInfo.lastConnectivityCheckError) {
       log.error "Ring connectivity error: ${deviceInfo.lastConnectivityCheckError}"
@@ -289,25 +262,9 @@ void setValues(final Map deviceInfo) {
     }
   }
 
-  if (deviceInfo.transition != null) {
-    checkChanged("exitDelay", deviceInfo.transition == "exit" ? "active" : "inactive")
-    sendEvent(name: "countdownTimeLeft", value: deviceInfo.timeLeft)
-    sendEvent(name: "countdownTotal", value: deviceInfo.total)
-  }
-
+  // Use containsKey instead of null chuck because transitionDelayEndTimestamp == null means the exit delay ended
   if (deviceInfo.containsKey('transitionDelayEndTimestamp')) {
     checkChanged("exitDelay", deviceInfo.transitionDelayEndTimestamp != null ? "active" : "inactive")
-  }
-
-  if (deviceInfo.percent != null) {
-    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
-  }
-
-  if (deviceInfo.version != null) {
-    final softwareVersion = deviceInfo.version?.softwareVersion
-    if (softwareVersion != null) {
-      checkChangedDataValue("softwareVersion", softwareVersion)
-    }
   }
 
   if (deviceInfo.networks != null) {
@@ -319,17 +276,25 @@ void setValues(final Map deviceInfo) {
       checkChanged("networkConnection", networks.getOrDefault(networkConnection, [type: "unknown"]).type)
     }
 
-    for (final String networkKey in ['eth0', 'ppp0', 'wlan0']) {
-      final Map network = networks[networkKey]
-      if (network != null) {
-        String networkType = network.type
+    for (final entry in networks.subMap(['eth0', 'ppp0', 'wlan0'])) {
+      final Map network = entry.value
+      final String networkKey = entry.key
+      final String networkType = network.type
 
-        // Sometimes the type isn't included. Just skip updating things for now
-        if (!networkType) {
-          logDebug "Could not get network.type for ${networkKey}: ${networks}"
-          continue
-        }
+      // Sometimes the type isn't included. Just skip updating things for now
+      if (!networkType) {
+        logDebug "Could not get network.type for ${networkKey}: ${networks}"
+        continue
+      }
 
+      checkChangedDataValue(networkKey + "Type", networkType)
+
+      String fullNetworkStr
+
+      if (networkKey == 'eth0') {
+        fullNetworkStr = 'connected'
+      }
+      else {
         String name = ""
 
         if (networkKey == 'ppp0') {
@@ -342,15 +307,14 @@ void setValues(final Map deviceInfo) {
         }
 
         String networkRssi = network.rssi ?: device.getDataValue(networkKey + "Rssi")
-
-        checkChangedDataValue(networkKey + "Type", networkType)
         checkChangedDataValue(networkKey + "Rssi", networkRssi)
 
-        final String fullNetworkStr = name + " RSSI " + networkRssi
-        logInfo "${networkKey} ${networkType} ${fullNetworkStr}"
-        checkChanged(networkType, fullNetworkStr)
-        state[networkKey] = fullNetworkStr
+        fullNetworkStr = name + " RSSI " + networkRssi
       }
+
+      logInfo "${networkKey} ${networkType} ${fullNetworkStr}"
+      checkChanged(networkType, fullNetworkStr)
+      state[networkKey] = fullNetworkStr
     }
   }
 
@@ -360,40 +324,76 @@ void setValues(final Map deviceInfo) {
     checkChanged("powerSource", POWER_SOURCE.getOrDefault(acStatus, "unknown"))
   }
 
-  // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
-  for (final String key in ["batteryBackup", "brightness", "commStatus", "tamper", "volume"]) {
-    final keyVal = deviceInfo[key]
-    if (keyVal != null) {
-      checkChanged(key, keyVal)
+  if (deviceInfo.volume != null) {
+    final Integer volume = deviceInfo.volume
+
+    Integer prevVolume = device.currentValue("volume")
+
+    if (checkChanged("volume", volume)) {
+      state.prevVolume == prevVolume
+      if (volume == 0) {
+        checkChanged("mute", "muted")
+      } else {
+        checkChanged("mute", "unmuted")
+      }
     }
   }
 
-  // Update state values
-  state += deviceInfo.subMap(['impulseType', 'lastUpdate'])
+  // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
+  for (final entry in deviceInfo.subMap(["batteryBackup", "batteryStatus", "brightness", "commStatus", "connectionStatus", "firmware", "tamper"])) {
+    checkChanged(entry.key, entry.value)
+  }
 
-  // Update data values
-  for(final String key in ['firmware', 'hardwareVersion']) {
-    checkChangedDataValue(key, deviceInfo[key])
+  // Update state values
+  Map stateValues = deviceInfo.subMap(['lastNetworkLatencyEvent', 'lastUpdate', 'impulseType'])
+  if (stateValues) {
+	  state << stateValues
   }
 }
 
-boolean checkChanged(final String attribute, final newStatus, final String unit=null) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+
+  if (deviceInfo.transition != null) {
+    checkChanged("exitDelay", deviceInfo.transition == "exit" ? "active" : "inactive")
+    sendEvent(name: "countdownTimeLeft", value: deviceInfo.timeLeft)
+    sendEvent(name: "countdownTotal", value: deviceInfo.total)
+  }
+}
+
+void runCleanup() {
+  state.remove('lastCommTime')
+  state.remove('nextExpectedWakeup')
+  state.remove('signalStrength')
+
+  device.removeDataValue('firmware') // Is an attribute now
+  device.removeDataValue('softwareVersion') // Is an attribute now
+
+  device.removeDataValue('fingerprint') // Hub doesn't appear to have a fingerprint. Previously value was coming from dataType access-code, which doesn't make sense
+  device.removeDataValue('null-zid')
+  device.removeDataValue('access-code.vault-zid')
+  device.removeDataValue('adapter.zigbee-zid')
+  device.removeDataValue('adapter.zwave-zid')
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
   final boolean changed = device.currentValue(attribute) != newStatus
   if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
   }
-  sendEvent(name: attribute, value: newStatus, unit: unit)
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
 }
 
 void checkChangedDataValue(final String name, final value) {
-  if (value != null && device.getDataValue(name) != value) {
+  if (device.getDataValue(name) != value) {
     device.updateDataValue(name, value)
   }
 }
-
-// Child device types to save zid for
-@Field final static HashSet<String> CHILD_ZID_DEVICE_TYPES = ['access-code.vault', 'adapter.zwave', 'security-panel']
 
 @Field final static Map RING_TO_HSM_MODE_MAP = [
   "home": [set: "armHome", status: "armedHome"],

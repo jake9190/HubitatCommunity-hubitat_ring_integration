@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Beams Motion Sensor Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -16,15 +17,19 @@
 import groovy.transform.Field
 
 metadata {
-  definition(name: "Ring Virtual Beams Motion Sensor", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-beams-motion-sensor.groovy") {
+  definition(name: "Ring Virtual Beams Motion Sensor", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
+    capability "Battery"
+    capability "Motion Sensor"
     capability "Refresh"
     capability "Sensor"
-    capability "Motion Sensor"
-    capability "Battery"
-    capability "TamperAlert"
 
-    attribute "lastCheckin", "string"
+    attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
+    attribute "firmware", "string"
+    attribute "rfChannel", "number"
+    attribute "rssi", "number"
+    attribute "sensitivity", "enum", ["low", "medium", "high", "custom2", "custom4"]
+
+    command "setSensitivity", [[name: "mode", type: "ENUM", constraints: ["low", "medium", "high", "custom2", "custom4"], description: "Set motion sensor sensitivity"]]
   }
 
   preferences {
@@ -34,77 +39,84 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
 def refresh() {
-  logDebug "Attempting to refresh."
-  //parent.simpleRequest("refresh-device", [dni: device.deviceNetworkId])
+  parent.refresh(device.getDataValue("src"))
+}
+
+void setSensitivity(String sensitivity) {
+  Integer ringSensitivity = MOTION_SENSITIVITY.find { it.value == sensitivity }?.key
+
+  if (ringSensitivity == null) {
+    log.error "Could not map ${sensitivity} to value ring expects"
+    return
+  }
+
+  parent.apiWebsocketRequestSetDevice(device.getDataValue("src"), device.getDataValue("zid"), [sensitivity: ringSensitivity])
 }
 
 void setValues(final Map deviceInfo) {
-  logDebug "setValues(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+  logDebug "setValues(${deviceInfo})"
 
   if (deviceInfo.batteryLevel != null) {
-    if (!discardBatteryLevel && !NO_BATTERY_DEVICES.contains(device.getDataValue("fingerprint"))) {
-      checkChanged("battery", deviceInfo.batteryLevel, "%")
-    }
+    checkChanged("battery", deviceInfo.batteryLevel, "%")
   }
 
-  if (deviceInfo.lastUpdate != null && deviceInfo.lastUpdate != state.lastUpdate) {
-    sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()))
+  if (deviceInfo.sensitivity != null) {
+    checkChanged("sensitivity", MOTION_SENSITIVITY[deviceInfo.sensitivity])
   }
 
   // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
-  for (final String key in ["motion", "tamper"]) {
-    final keyVal = deviceInfo[key]
-    if (keyVal != null) {
-      checkChanged(key, keyVal)
-    }
+  for (final entry in deviceInfo.subMap(["commStatus", "firmware", "motion", "rfChannel", "rssi"])) {
+    checkChanged(entry.key, entry.value)
   }
 
   // Update state values
-  state += deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength'])
-
-  // Update data values
-  for(final String key in ['firmware', 'hardwareVersion']) {
-    checkChangedDataValue(key, deviceInfo[key])
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastUpdate'])
+  if (stateValues) {
+	  state << stateValues
   }
 }
 
-@Field final HashSet<String> NO_BATTERY_DEVICES = ["ring-beams-c5000"]
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
 
-boolean checkChanged(final String attribute, final newStatus, final String unit=null) {
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('firmware') // Is an attribute now
+  state.remove('lastCommTime')
+  state.remove('signalStrength')
+  state.remove('nextExpectedWakeup')
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
   final boolean changed = device.currentValue(attribute) != newStatus
   if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
   }
-  sendEvent(name: attribute, value: newStatus, unit: unit)
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
 }
 
-void checkChangedDataValue(final String name, final value) {
-  if (value != null && device.getDataValue(name) != value) {
-    device.updateDataValue(name, value)
-  }
-}
-
-private String convertToLocalTimeString(final Date dt) {
-  final TimeZone timeZone = location?.timeZone
-  if (timeZone) {
-    return dt.format("yyyy-MM-dd h:mm:ss a", timeZone)
-  }
-  else {
-    return dt.toString()
-  }
-}
+@Field final static Map<Integer, String> MOTION_SENSITIVITY = [
+  0: 'high', // Custom 5
+  63: 'custom4',
+  127: 'medium', // Custom 3
+  191: 'custom2',
+  255: 'low', // Custom 1
+]

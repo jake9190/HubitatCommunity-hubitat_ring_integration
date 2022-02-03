@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Lock Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -13,17 +14,18 @@
  *  for the specific language governing permissions and limitations under the License.
  */
 
+import groovy.transform.Field
+
 metadata {
-  definition(name: "Ring Virtual Lock", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-lock.groovy") {
+  definition(name: "Ring Virtual Lock", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
+    capability "Battery"
+    capability "Lock"
     capability "Refresh"
     capability "Sensor"
-    capability "Lock"
-    capability "Battery"
     capability "TamperAlert"
 
     attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
-    attribute "lastCheckin", "string"
+    attribute "firmware", "string"
   }
 
   preferences {
@@ -33,40 +35,38 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def refresh() {
-  logDebug "Attempting to refresh."
-  //parent.simpleRequest("refresh-device", [dni: device.deviceNetworkId])
+void refresh() {
+  parent.refresh(device.getDataValue("src"))
 }
 
-def lock() {
-  logDebug "lock()"
-  parent.simpleRequest("setcommand", [type: "lock.lock", zid: device.getDataValue("zid"), dst: device.getDataValue("dst"), data: {
-  }])
+def lock() { lockUnlockInternal('lock') }
+def unlock() { lockUnlockInternal('unlock') }
+
+def lockUnlockInternal(final String command) {
+  if (device.currentValue('lock') != "${command}ed") {
+    parent.apiWebsocketRequestSetCommand("lock.${command}", device.getDataValue("dst"), device.getDataValue("zid"))
+  }
 }
 
-def unlock() {
-  parent.simpleRequest("setcommand", [type: "lock.unlock", zid: device.getDataValue("zid"), dst: device.getDataValue("dst"), data: {
-  }])
-}
-
+// @todo When lock fails to digitally lock/unlock, an error.set-info gets sent. Maybe this could be logged?
 void setValues(final Map deviceInfo) {
-  logDebug "setValues(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+  logDebug "setValues(${deviceInfo})"
 
   if (deviceInfo.locked != null) {
-    checkChanged("lock", deviceInfo.locked)
+    final boolean isPhysical = PHYSICAL_LOCK_IMPUSES.contains(deviceInfo.impulseType)
+    checkChanged("lock", deviceInfo.locked, null, isPhysical ? 'physical' : 'digital')
   }
 
   if (deviceInfo.batteryLevel != null) {
@@ -74,33 +74,37 @@ void setValues(final Map deviceInfo) {
   }
 
   // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
-  for (final String key in ["commStatus", "lastCheckin", "tamper"]) {
-    final keyVal = deviceInfo[key]
-    if (keyVal != null) {
-      checkChanged(key, keyVal)
-    }
+  for (final entry in deviceInfo.subMap(["commStatus", "firmware", "tamper"])) {
+    checkChanged(entry.key, entry.value)
   }
 
   // Update state values
-  state += deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength'])
-
-  // Update data values
-  for(final String key in ['firmware', 'hardwareVersion']) {
-    checkChangedDataValue(key, deviceInfo[key])
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'signalStrength'])
+  if (stateValues) {
+	  state << stateValues
   }
 }
 
-boolean checkChanged(final String attribute, final newStatus, final String unit=null) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('firmware') // Is an attribute now
+  state.remove('nextExpectedWakeup') // Device doesn't seem to have this value
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
   final boolean changed = device.currentValue(attribute) != newStatus
   if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
   }
-  sendEvent(name: attribute, value: newStatus, unit: unit)
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
 }
 
-void checkChangedDataValue(final String name, final value) {
-  if (value != null && device.getDataValue(name) != value) {
-    device.updateDataValue(name, value)
-  }
-}
+@Field final static HashSet<String> PHYSICAL_LOCK_IMPUSES = ['locked', 'unlocked', 'locked.by-manual', 'unlocked.by-manual']

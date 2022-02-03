@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Light with Siren Device Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -13,11 +14,8 @@
  *  for the specific language governing permissions and limitations under the License.
  */
 
-import groovy.transform.Field
-
 metadata {
-  definition(name: "Ring Virtual Light with Siren", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-light-with-siren.groovy") {
+  definition(name: "Ring Virtual Light with Siren", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Actuator"
     capability "Switch"
     capability "Sensor"
@@ -26,7 +24,9 @@ metadata {
     capability "Alarm"
     capability "MotionSensor"
 
-    attribute "lastActivity", "string"
+    attribute "firmware", "string"
+    attribute "rssi", "number"
+    attribute "wifi", "string"
 
     command "alarmOff"
     command "getDings"
@@ -44,18 +44,22 @@ metadata {
   }
 }
 
-@Field final static Integer LAST_ACTIVITY_THRESHOLD = 60 //minutes
-
-private logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+void logInfo(msg) {
+  if (descriptionTextEnable) {
+    log.info msg
+  }
 }
 
-def logDebug(msg) {
-  if (logEnable) log.debug msg
+void logDebug(msg) {
+  if (logEnable) {
+    log.debug msg
+  }
 }
 
-def logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+void logTrace(msg) {
+  if (traceLogEnable) {
+    log.trace msg
+  }
 }
 
 def parse(String description) {
@@ -68,12 +72,13 @@ def poll() {
 
 def refresh() {
   logDebug "refresh()"
-  parent.simpleRequest("refresh", [dni: device.deviceNetworkId])
+  parent.apiRequestDeviceRefresh(device.deviceNetworkId)
+  parent.apiRequestDeviceHealth(device.deviceNetworkId, "doorbots")
 }
 
 def getDings() {
   logDebug "getDings()"
-  parent.simpleRequest("dings")
+  parent.apiRequestDings()
 }
 
 def setupPolling() {
@@ -98,14 +103,11 @@ def updated() {
 
 def on() {
   state.strobing = false
-  logDebug "Attempting to switch on."
-  parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "floodlight_light_on"])
+  parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "floodlight_light_on")
 }
 
-def off(boolean modifyAlarm = true) {
-  if (modifyAlarm) {
-    alarmOff(false)
-  }
+def off() {
+  alarmOff(false)
   switchOff()
 }
 
@@ -114,12 +116,10 @@ def switchOff() {
     unschedule()
   }
   state.strobing = false
-  logDebug "Attempting to set switch to off."
-  parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "floodlight_light_off"])
+  parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "floodlight_light_off")
 }
 
 def alarmOff(boolean modifyLight = true) {
-  logDebug "Attempting to set alarm to off."
   final String alarm = device.currentValue("alarm")
   logTrace "alarm: $alarm"
   sendEvent(name: "alarm", value: "off")
@@ -127,17 +127,16 @@ def alarmOff(boolean modifyLight = true) {
     switchOff()
   }
   if (alarm == "siren" || alarm == "both") {
-    parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "siren_off"])
+    parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "siren_off")
   }
 }
 
 def siren() {
-  logDebug "Attempting to turn on siren."
-  parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "siren_on"])
+  parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "siren_on")
 }
 
 def strobe(value = "strobe") {
-  logInfo "${device.getDisplayName()} was set to strobe with a rate of ${strobeRate} milliseconds for ${strobeTimeout.toInteger()} seconds"
+  logInfo "$device was set to strobe with a rate of $strobeRate milliseconds for $strobeTimeout seconds"
   state.strobing = true
   strobeOn()
   sendEvent(name: "alarm", value: value)
@@ -145,7 +144,6 @@ def strobe(value = "strobe") {
 }
 
 def both() {
-  logDebug "Attempting to turn on siren and strobe."
   strobe("both")
   siren()
 }
@@ -153,58 +151,66 @@ def both() {
 def strobeOn() {
   if (state.strobing) {
     runInMillis(strobeRate.toInteger(), strobeOff)
-    parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "floodlight_light_on"])
+    parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "floodlight_light_on")
   }
 }
 
 def strobeOff() {
   if (state.strobing) {
     runInMillis(strobeRate.toInteger(), strobeOn)
-    parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "floodlight_light_off"])
+    parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "floodlight_light_off")
   }
 }
 
-void childParse(final String type, final Map params) {
-  logDebug "childParse(${type}, params)"
-  logTrace "params ${params}"
+void handleDeviceSet(final String action, final Map msg, final Map query) {
+  if (action == "floodlight_light_on") {
+    checkChanged("switch", "on")
+  }
+  else if (action == "floodlight_light_off") {
+    checkChanged("switch", "off")
+  }
+  else if (action == "siren_on") {
+    if (device.currentValue("alarm") != "both") {
+      checkChanged("alarm", "siren")
+    }
 
-  if (canReportLastActivity()) {
-    sendEvent(name: "lastActivity", value: convertToLocalTimeString(new Date()))
+    runIn(msg.seconds_remaining + 1, refresh)
   }
-
-  if (type == "refresh") {
-    logTrace "refresh"
-    handleRefresh(params.msg)
-  }
-  else if (type == "device-set") {
-    logTrace "set"
-    handleSet(params)
-  }
-  else if (type == "dings") {
-    logTrace "dings"
-    handleDings(params.type, params.msg)
+  else if (action == "siren_off") {
+    checkChanged('alarm', "off")
   }
   else {
-    log.error "Unhandled type ${type}"
+    log.error "handleDeviceSet unsupported action ${action}, msg=${msg}, query=${query}"
   }
 }
 
-boolean canReportLastActivity() {
-  if (state.lastActivity == null || now() > (state.lastActivity + (LAST_ACTIVITY_THRESHOLD * 60 * 1000))) {
-    state.lastActivity = now()
-    return true
+void handleHealth(final Map msg) {
+  if (msg.device_health) {
+    if (msg.device_health.wifi_name) {
+      checkChanged("wifi", msg.device_health.wifi_name)
+    }
   }
-  return false
 }
 
-private void handleRefresh(final Map msg) {
-  logDebug "handleRefresh(${msg})"
-  if (!msg.led_status) {
-    log.warn "No status?"
-    return
-  }
+void handleMotion(final Map msg) {
+  if (msg.motion == true) {
+    checkChanged("motion", "active")
 
-  checkChanged("switch", msg.led_status)
+    runIn(60, motionOff) // We don't get motion off msgs from ifttt, and other motion only happens on a manual refresh
+  }
+  else if(msg.motion == false) {
+    checkChanged("motion", "inactive")
+    unschedule(motionOff)
+  }
+  else {
+    log.error ("handleMotion unsupported msg: ${msg}")
+  }
+}
+
+void handleRefresh(final Map msg) {
+  if (msg.led_status) {
+    checkChanged("switch", msg.led_status)
+  }
 
   if (msg.siren_status?.seconds_remaining != null) {
     final Integer seconds_remaining = msg.siren_status.seconds_remaining
@@ -214,49 +220,19 @@ private void handleRefresh(final Map msg) {
     }
   }
 
-  checkChangedDataValue("firmware", msg.firmware_version)
-}
+  if (msg.is_sidewalk_gateway) {
+    log.warn ("Your device is being used as an Amazon sidewalk device.")
+  }
 
-private void handleSet(final Map params) {
-  logTrace "handleSet(${params})"
-  if (params.response != 200) {
-    log.warn "Not successful?"
-    return
-  }
-  if (params.action == "floodlight_light_on") {
-    checkChanged("switch", "on")
-  }
-  else if (params.action == "floodlight_light_off") {
-    checkChanged("switch", "off")
-  }
-  else if (params.action == "siren_on") {
-    if (device.currentValue("alarm") != "both") {
-      checkChanged("alarm", "siren")
+  if (msg.health) {
+    Map health = msg.health
+
+    if (health.firmware_version) {
+      checkChanged("firmware", health.firmware_version)
     }
-    runIn(params.msg.seconds_remaining + 1, refresh)
-  }
-  else if (params.action == "siren_off") {
-    checkChanged('alarm', "off")
-  }
-  else {
-    log.error "Unsupported set ${params.action}"
-  }
 
-}
-
-private void handleDings(final String type, final Map msg) {
-  logTrace "msg: ${msg}"
-  if (msg == null) {
-    log.warn "Got a null msg!"
-    checkChanged("motion", "inactive")
-  }
-  else if (msg.kind == "motion" && msg.motion == true) {
-    checkChanged("motion", "active")
-
-    if (type == "IFTTT") {
-      runIn(60, motionOff)
-    } else {
-      unschedule(motionOff)
+    if (health.rssi) {
+      checkChanged("rssi", health.rssi)
     }
   }
 }
@@ -265,27 +241,17 @@ void motionOff() {
   checkChanged("motion", "inactive")
 }
 
-boolean checkChanged(final String attribute, final newStatus, final String unit=null) {
+void runCleanup() {
+  state.remove('lastActivity')
+  device.removeDataValue("firmware") // Is an attribute now
+  device.removeDataValue("device_id")
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
   final boolean changed = device.currentValue(attribute) != newStatus
   if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
   }
-  sendEvent(name: attribute, value: newStatus, unit: unit)
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
-}
-
-void checkChangedDataValue(final String name, final value) {
-  if (value != null && device.getDataValue(name) != value) {
-    device.updateDataValue(name, value)
-  }
-}
-
-private String convertToLocalTimeString(final Date dt) {
-  TimeZone timeZone = location?.timeZone
-  if (timeZone) {
-    return dt.format("yyyy-MM-dd h:mm:ss a", timeZone)
-  }
-  else {
-    return dt.toString()
-  }
 }

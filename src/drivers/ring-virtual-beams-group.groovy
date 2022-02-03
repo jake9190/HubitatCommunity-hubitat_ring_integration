@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Beams Group Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -14,14 +15,14 @@
  */
 
 metadata {
-  definition(name: "Ring Virtual Beams Group", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-beams-group.groovy") {
+  definition(name: "Ring Virtual Beams Group", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
+    capability "Battery"
+    capability "Motion Sensor"
     capability "Refresh"
     capability "Sensor"
-    capability "Motion Sensor"
-    capability "Battery"
-    capability "TamperAlert"
     capability "Switch"
+
+    command "on", [[name: "Duration", type: "NUMBER", range: "0..28800", description: "Choose a value between 0 and 28800 seconds"]]
   }
 
   preferences {
@@ -31,70 +32,71 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
 def refresh() {
-  logDebug "Attempting to refresh."
-  //parent.simpleRequest("refresh-device", [dni: device.deviceNetworkId])
+  parent.refresh(device.getDataValue("src"))
 }
 
-def on() {
-  logDebug "Attempting to turn the light on."
-  parent.simpleRequest("setcommand", [type: "light-mode.set", zid: device.getDataValue("zid"), dst: device.getDataValue("src"),
-                                      data: [lightMode: "on", duration: 60]])
+def on(duration = 60) {
+  parent.apiWebsocketRequestSetCommand("light-mode.set", device.getDataValue("src"), device.getDataValue("zid"), [lightMode: "on", duration: duration])
 }
 
 def off() {
-  logDebug "Attempting to turn the light off."
-  parent.simpleRequest("setcommand", [type: "light-mode.set", zid: device.getDataValue("zid"), dst: device.getDataValue("src"),
-                                      data: [lightMode: "default"]])
+  parent.apiWebsocketRequestSetCommand("light-mode.set", device.getDataValue("src"), device.getDataValue("zid"), [lightMode: "default"])
 }
 
 void setValues(final Map deviceInfo) {
-  logDebug "setValues(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+  logDebug "setValues(${deviceInfo})"
 
   if (deviceInfo.groupMembers) {
     Map members = [:]
-    for(groupMemeber in deviceInfo.groupMembers) {
-      def d = parent.getChildByZID(it)
+    for(final String groupMemeber in deviceInfo.groupMembers) {
+      def d = parent.getChildByZID(groupMemeber)
       if (d) {
         members[d.deviceNetworkId] = d.label
-      }
-      else {
-        log.warn "Device ${it} isn't created in Hubitat and will not be included in this group's members."
+      } else {
+        log.warn "Device ${groupMemeber} isn't created in Hubitat and will not be included in this group's members."
       }
     }
     state.members = members
   }
 
   // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
-  for (final String key in ["motion", "switch"]) {
-    final keyVal = deviceInfo[key]
-    if (keyVal != null) {
-      checkChanged(key, keyVal)
-    }
+  for (final entry in deviceInfo.subMap(["motion", "switch"])) {
+    checkChanged(entry.key, entry.value)
   }
 
   // Update state values
-  state += deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate'])
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastUpdate'])
+  if (stateValues) {
+	  state << stateValues
+  }
 }
 
-boolean checkChanged(final String attribute, final newStatus, final String unit=null) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+}
+
+void runCleanup() {
+  state.remove('lastCommTime')
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
   final boolean changed = device.currentValue(attribute) != newStatus
   if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
   }
-  sendEvent(name: attribute, value: newStatus, unit: unit)
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
 }

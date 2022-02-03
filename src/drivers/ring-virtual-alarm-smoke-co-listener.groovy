@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Alarm Smoke & CO Listener Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -16,20 +17,19 @@
 import groovy.transform.Field
 
 metadata {
-  definition(name: "Ring Virtual Alarm Smoke & CO Listener", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-alarm-smoke-co-listener.groovy") {
+  definition(name: "Ring Virtual Alarm Smoke & CO Listener", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
+    capability "Battery"
+    capability "CarbonMonoxideDetector"
     capability "Refresh"
     capability "Sensor"
-    capability "Battery"
+    capability "SmokeDetector"
     capability "TamperAlert"
-    capability "CarbonMonoxideDetector" //carbonMonoxide - ENUM ["detected", "tested", "clear"]
-    capability "SmokeDetector" //smoke - ENUM ["clear", "tested", "detected"]
 
     attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
+    attribute "firmware", "string"
     attribute "listeningCarbonMonoxide", "enum", ["listening", "inactive"]
     attribute "listeningSmoke", "enum", ["listening", "inactive"]
     attribute "testMode", "string"
-    attribute "lastCheckin", "string"
   }
 
   preferences {
@@ -39,26 +39,24 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def refresh() {
-  logDebug "Attempting to refresh."
-  //parent.simpleRequest("refresh-device", [dni: device.deviceNetworkId])
+void refresh() {
+  parent.refresh(device.getDataValue("src"))
 }
 
 void setValues(final Map deviceInfo) {
-  logDebug "setValues(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+  logDebug "setValues(${deviceInfo})"
 
   if (deviceInfo.co != null) {
     final Map co = deviceInfo.co
@@ -81,10 +79,8 @@ void setValues(final Map deviceInfo) {
   if (deviceInfo.pending != null) {
     final Map deviceInfoPending = deviceInfo.pending
 
-    if (deviceInfoPending != null) {
-      if (deviceInfoPending.commands) {
-        logDebug "Device ${device.label} will set the commands ${deviceInfoPending.commands} on next wakeup"
-      }
+    if (deviceInfoPending.commands) {
+      logDebug "Device ${device.label} will set the commands ${deviceInfoPending.commands} on ${getNextExpectedWakeupString(deviceInfo)}"
     }
   }
 
@@ -93,35 +89,44 @@ void setValues(final Map deviceInfo) {
   }
 
   // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
-  for (final String key in ["commStatus", "lastCheckin", "tamper", "testMode"]) {
-    final keyVal = deviceInfo[key]
-    if (keyVal != null) {
-      checkChanged(key, keyVal)
-    }
+  for (final entry in deviceInfo.subMap(["commStatus", "firmware", "tamper", "testMode"])) {
+    checkChanged(entry.key, entry.value)
   }
 
   // Update state values
-  state += deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength'])
-
-  // Update data values
-  for(final String key in ['firmware', 'hardwareVersion']) {
-    checkChangedDataValue(key, deviceInfo[key])
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength'])
+  if (stateValues) {
+	  state << stateValues
   }
 }
 
-boolean checkChanged(final String attribute, final newStatus, final String unit=null) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('firmware') // Is an attribute now
+}
+
+// @return Next expected wakeup time as a string.
+// Gets value from deviceInfo first, falls back to state because nextExpectedWakeup isn't sent with every deviceInfo
+String getNextExpectedWakeupString(final Map deviceInfo) {
+  final Long nextExpectedWakeup = deviceInfo.nextExpectedWakeup ?: state.nextExpectedWakeup
+
+  return nextExpectedWakeup ? new Date(nextExpectedWakeup).toString() : 'unknown'
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
   final boolean changed = device.currentValue(attribute) != newStatus
   if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
   }
-  sendEvent(name: attribute, value: newStatus, unit: unit)
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
-}
-
-void checkChangedDataValue(final String name, final value) {
-  if (value != null && device.getDataValue(name) != value) {
-    device.updateDataValue(name, value)
-  }
 }
 
 @Field final static Map<String, String> ALARM_STATUS = [

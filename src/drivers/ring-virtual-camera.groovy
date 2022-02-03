@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Camera Device Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -14,15 +15,18 @@
  */
 
 metadata {
-  definition(name: "Ring Virtual Camera", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-camera.groovy") {
+  definition(name: "Ring Virtual Camera", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Actuator"
-    capability "Sensor"
-    capability "Refresh"
-    capability "Polling"
-    capability "MotionSensor"
     capability "Battery"
+    capability "MotionSensor"
+    capability "Polling"
     capability "PushableButton"
+    capability "Refresh"
+    capability "Sensor"
+
+    attribute "firmware", "string"
+    attribute "rssi", "number"
+    attribute "wifi", "string"
 
     command "getDings"
   }
@@ -35,15 +39,15 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
@@ -66,56 +70,58 @@ void push(buttonNumber) {
 
 def refresh() {
   logDebug "refresh()"
-  parent.simpleRequest("refresh", [dni: device.deviceNetworkId])
+  parent.apiRequestDeviceRefresh(device.deviceNetworkId)
+  parent.apiRequestDeviceHealth(device.deviceNetworkId, "doorbots")
 }
 
 def getDings() {
   logDebug "getDings()"
-  parent.simpleRequest("dings")
+  parent.apiRequestDings()
 }
 
-void childParse(final String type, final Map params) {
-  logDebug "childParse(${type}, params)"
-  logTrace "params ${params}"
-
-  if (type == "refresh") {
-    handleRefresh(params.msg)
-  }
-  else if (type == "dings") {
-    handleDings(params.type, params.msg)
-  }
-  else {
-    log.error "Unhandled type ${type}"
-  }
+void handleDing(final Map msg) {
+  logInfo "${device.label} button 1 was pushed"
+  sendEvent(name: "pushed", value: 1, isStateChange: true)
 }
 
-private void handleRefresh(final Map msg) {
-  logDebug "handleRefresh(${msg})"
-
-  if (msg.battery_life != null && !["jbox_v1", "lpd_v1", "lpd_v2"].contains(device.getDataValue("kind"))) {
-    checkChanged("battery", msg.battery_life)
-  }
-
-  checkChangedDataValue("firmware", msg.firmware_version)
-}
-
-private void handleDings(final String type, final Map msg) {
-  logTrace "msg: ${msg}"
-  if (msg == null) {
-    log.warn "Got a null msg!"
-  }
-  else if (msg.kind == "motion" && msg.motion == true) {
-    checkChanged("motion", "active")
-
-    if (type == "IFTTT") {
-      runIn(60, motionOff)
-    } else {
-      unschedule(motionOff)
+void handleHealth(final Map msg) {
+  if (msg.device_health) {
+    if (msg.device_health.wifi_name) {
+      checkChanged("wifi", msg.device_health.wifi_name)
     }
   }
-  else if (msg.kind == "ding") {
-    logInfo "${device.label} button 1 was pushed"
-    sendEvent(name: "pushed", value: 1, isStateChange: true)
+}
+
+void handleMotion(final Map msg) {
+  if (msg.motion == true) {
+    checkChanged("motion", "active")
+
+    runIn(60, motionOff) // We don't get motion off msgs from ifttt, and other motion only happens on a manual refresh
+  }
+  else if(msg.motion == false) {
+    checkChanged("motion", "inactive")
+    unschedule(motionOff)
+  }
+  else {
+    log.error ("handleMotion unsupported msg: ${msg}")
+  }
+}
+
+void handleRefresh(final Map msg) {
+  if (msg.battery_life != null && !["jbox_v1", "lpd_v1", "lpd_v2"].contains(device.getDataValue("kind"))) {
+    checkChanged("battery", msg.battery_life, '%')
+  }
+
+  if (msg.health) {
+    Map health = msg.health
+
+    if (health.firmware_version) {
+      checkChanged("firmware", health.firmware_version)
+    }
+
+    if (health.rssi) {
+      checkChanged("rssi", health.rssi)
+    }
   }
 }
 
@@ -123,17 +129,16 @@ void motionOff() {
   checkChanged("motion", "inactive")
 }
 
-boolean checkChanged(final String attribute, final newStatus, final String unit=null) {
+void runCleanup() {
+  device.removeDataValue("firmware") // Is an attribute now
+  device.removeDataValue("device_id")
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
   final boolean changed = device.currentValue(attribute) != newStatus
   if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
   }
-  sendEvent(name: attribute, value: newStatus, unit: unit)
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
-}
-
-void checkChangedDataValue(final String name, final value) {
-  if (value != null && device.getDataValue(name) != value) {
-    device.updateDataValue(name, value)
-  }
 }

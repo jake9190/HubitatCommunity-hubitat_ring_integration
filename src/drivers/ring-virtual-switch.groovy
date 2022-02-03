@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Switch Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -14,12 +15,14 @@
  */
 
 metadata {
-  definition(name: "Ring Virtual Switch", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-switch.groovy") {
+  definition(name: "Ring Virtual Switch", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Refresh"
     capability "Sensor"
     capability "Battery"
     capability "Switch"
+    capability "TamperAlert"
+
+    attribute "firmware", "string"
   }
 
   preferences {
@@ -29,65 +32,66 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def refresh() {
-  logDebug "Attempting to refresh."
-  //parent.simpleRequest("refresh-device", [dni: device.deviceNetworkId])
+void refresh() {
+  parent.refresh(device.getDataValue("src"))
 }
 
 def on() {
-  parent.simpleRequest("setdevice", [zid: device.getDataValue("zid"), dst: device.getDataValue("src"), data: ["on": true]])
+  parent.apiWebsocketRequestSetDevice(device.getDataValue("src"), device.getDataValue("zid"), ["on": true])
 }
 
 def off() {
-  parent.simpleRequest("setdevice", [zid: device.getDataValue("zid"), dst: device.getDataValue("src"), data: ["on": false]])
+  parent.apiWebsocketRequestSetDevice(device.getDataValue("src"), device.getDataValue("zid"), ["on": false])
 }
 
 void setValues(final Map deviceInfo) {
-  logDebug "setValues(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+  logDebug "setValues(${deviceInfo})"
 
   if (deviceInfo.batteryLevel != null) {
     checkChanged("battery", deviceInfo.batteryLevel, "%")
   }
 
   // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
-  for (final String key in ["lastCheckin", "switch", "tamper"]) {
-    final keyVal = deviceInfo[key]
-    if (keyVal != null) {
-      checkChanged(key, keyVal)
-    }
+  for (final entry in deviceInfo.subMap(["firmware", "switch", "tamper"])) {
+    checkChanged(entry.key, entry.value)
   }
 
   // Update state values
-  state += deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength'])
-
-  // Update data values
-  for(final String key in ['firmware', 'hardwareVersion']) {
-    checkChangedDataValue(key, deviceInfo[key])
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength'])
+  if (stateValues) {
+	  state << stateValues
   }
 }
 
-void checkChanged(final String attribute, final newStatus, final String unit=null) {
-  if (device.currentValue(attribute) != newStatus) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('firmware') // Is an attribute now
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
-}
-
-void checkChangedDataValue(final String name, final value) {
-  if (value != null && device.getDataValue(name) != value) {
-    device.updateDataValue(name, value)
-  }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
 }

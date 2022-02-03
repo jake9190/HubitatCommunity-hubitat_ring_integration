@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Beams Bridge Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -14,16 +15,16 @@
  */
 
 metadata {
-  definition(name: "Ring Virtual Beams Bridge", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-beams-bridge.groovy") {
+  definition(name: "Ring Virtual Beams Bridge", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Refresh"
     capability "Sensor"
 
-    attribute "lastCheckin", "string"
-    attribute "networkConnection", "enum", ["cellular", "ethernet", "unknown", "wifi"]
+    attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
+    attribute "connectionStatus", "enum", ["asset-cell-backup", "backing-up", "connected", "connecting", "extended-cell-backup",
+                                           "restoring", "updating"]
+    attribute "firmware", "string"
+    attribute "networkConnection", "enum", ["unknown", "wifi"]
     attribute "wifi", "string"
-
-    command "createDevices"
   }
 
   preferences {
@@ -33,31 +34,24 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def createDevices() {
-  logDebug "Attempting to create devices."
-  parent.createDevices(device.getDataValue("zid"))
-}
-
 def refresh() {
-  logDebug "Attempting to refresh."
-  parent.refresh(device.getDataValue("zid"))
+  parent.refresh(device.getDataValue("src"))
 }
 
 void setValues(final Map deviceInfo) {
-  logDebug "setValues(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+  logDebug "setValues(${deviceInfo})"
 
   if (deviceInfo.containsKey('lastConnectivityCheckError')) {
     if (deviceInfo.lastConnectivityCheckError) {
@@ -88,11 +82,11 @@ void setValues(final Map deviceInfo) {
           continue
         }
 
-        String networkName = network.name ?: device.getDataValue(networkKey + "Name")
+        String networkName = network.ssid ?: device.getDataValue(networkKey + "Ssid")
         String networkRssi = network.rssi ?: device.getDataValue(networkKey + "Rssi")
 
         checkChangedDataValue(networkKey + "Type", networkType)
-        checkChangedDataValue(networkKey + "Name", networkName)
+        checkChangedDataValue(networkKey + "Ssid", networkName)
         checkChangedDataValue(networkKey + "Rssi", networkRssi)
 
         final String fullNetworkStr = networkName + " RSSI " + networkRssi
@@ -103,49 +97,44 @@ void setValues(final Map deviceInfo) {
     }
   }
 
-  if (deviceInfo.version != null) {
-    final version = deviceInfo.version
-
-    if (deviceInfo.deviceType == "adapter.ringnet") {
-      for(final String key in ['buildNumber', 'nordicFirmwareVersion', 'softwareVersion']) {
-        checkChangedDataValue(key, version[key])
-      }
-    } else {
-      checkChangedDataValue("version", version)
-    }
-  }
-
-  if (deviceInfo.status == 'success') {
-    if (deviceInfo.deviceType == "halo-stats.latency") {
-      sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()))
-    }
+  // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
+  for (final entry in deviceInfo.subMap(["commStatus", "connectionStatus", "firmware"])) {
+    checkChanged(entry.key, entry.value)
   }
 
   // Update state values
-  state += deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate'])
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastUpdate'])
+  if (stateValues) {
+	  state << stateValues
+  }
 }
 
-boolean checkChanged(final String attribute, final newStatus, final String unit=null) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('nordicFirmwareVersion') // Is an attribute now
+  device.removeDataValue('softwareVersion') // Is an attribute now
+  device.removeDataValue('version') // Is an attribute now
+  state.remove('lastCommTime')
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
   final boolean changed = device.currentValue(attribute) != newStatus
   if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
   }
-  sendEvent(name: attribute, value: newStatus, unit: unit)
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
 }
 
 void checkChangedDataValue(final String name, final value) {
-  if (value != null && device.getDataValue(name) != value) {
+  if (device.getDataValue(name) != value) {
     device.updateDataValue(name, value)
-  }
-}
-
-private String convertToLocalTimeString(final Date dt) {
-  final TimeZone timeZone = location?.timeZone
-  if (timeZone) {
-    return dt.format("yyyy-MM-dd h:mm:ss a", timeZone)
-  }
-  else {
-    return dt.toString()
   }
 }

@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Alarm Range Extender Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -16,18 +17,17 @@
 import groovy.transform.Field
 
 metadata {
-  definition(name: "Ring Virtual Alarm Range Extender", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-alarm-range-extender.groovy") {
-    capability "Refresh"
-    capability "Sensor"
+  definition(name: "Ring Virtual Alarm Range Extender", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Battery"
     capability "PowerSource"
+    capability "Refresh"
+    capability "Sensor"
     capability "TamperAlert"
 
     attribute "acStatus", "enum", ["brownout", "error", "ok"]
-    attribute "batteryStatus", "string"
+    attribute "batteryStatus", "enum", ["charged", "charging", "failed", "full", "low", "malfunction", "none", "ok", "warn"]
     attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
-    attribute "lastCheckin", "string"
+    attribute "firmware", "string"
   }
 
   preferences {
@@ -37,31 +37,24 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def refresh() {
-  logDebug "Attempting to refresh."
-  //parent.simpleRequest("refresh-device", [dni: device.deviceNetworkId])
+void refresh() {
+  parent.refresh(device.getDataValue("src"))
 }
 
 void setValues(final Map deviceInfo) {
-  logDebug "setValues(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
-
-  if (state.containsKey('nextExpectedWakeup')) {
-    log.warn ("Cleaning up old state/data values from ${device}")
-    state.remove('nextExpectedWakeup')
-  }
+  logDebug "setValues(${deviceInfo})"
 
   if (deviceInfo.acStatus != null) {
     final String acStatus = deviceInfo.acStatus
@@ -74,35 +67,37 @@ void setValues(final Map deviceInfo) {
   }
 
   // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
-  for (final String key in ["batteryStatus", "commStatus", "lastCheckin", "tamper"]) {
-    final keyVal = deviceInfo[key]
-    if (keyVal != null) {
-      checkChanged(key, keyVal)
-    }
+  for (final entry in deviceInfo.subMap(["batteryStatus", "commStatus", "firmware", "tamper"])) {
+    checkChanged(entry.key, entry.value)
   }
 
   // Update state values
-  state += deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'signalStrength'])
-
-  // Update data values
-  for(final String key in ['firmware', 'hardwareVersion']) {
-    checkChangedDataValue(key, deviceInfo[key])
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'signalStrength'])
+  if (stateValues) {
+	  state << stateValues
   }
 }
 
-boolean checkChanged(final String attribute, final newStatus, final String unit=null) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  state.remove('nextExpectedWakeup')
+  device.removeDataValue('firmware') // Is an attribute now
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
   final boolean changed = device.currentValue(attribute) != newStatus
   if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
   }
-  sendEvent(name: attribute, value: newStatus, unit: unit)
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
-}
-
-void checkChangedDataValue(final String name, final value) {
-  if (value != null && device.getDataValue(name) != value) {
-    device.updateDataValue(name, value)
-  }
 }
 
 @Field final static Map<String, String> AC_STATUS = [
