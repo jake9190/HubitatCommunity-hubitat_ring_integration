@@ -124,11 +124,19 @@
       "required": false
     },
     {
-      "id": "32b9f95d-1d97-4ae9-a59c-69bbb5d806a2",
-      "name": "Ring Virtual Alarm Flood & Freeze Sensor",
+      "id": "2bbff10b-0231-47d3-bb80-25d86d1a2317",
+      "name": "Ring Virtual Chime",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.4.0/src/drivers/ring-virtual-flood-freeze-sensor.groovy",
-      "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-flood-freeze-sensor.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.4.0/src/drivers/ring-virtual-chime.groovy",
+      "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-chime.groovy",
+      "required": false
+    },
+    {
+      "id": "fbbc678d-19a1-47d0-bb2d-2cd5c428c950",
+      "name": "Ring Virtual Glass Break Sensor",
+      "namespace": "ring-hubitat-codahq",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.4.0/src/drivers/ring-virtual-glass-break-sensor.groovy",
+      "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-glass-break-sensor.groovy",
       "required": false
     },
     {

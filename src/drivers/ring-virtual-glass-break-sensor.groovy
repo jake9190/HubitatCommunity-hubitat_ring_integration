@@ -1,0 +1,106 @@
+/**
+ *  Ring Virtual Contact Sensor Driver
+ *
+ *  Copyright 2022 Caleb Morse
+ *  Copyright 2022 Caleb Morse
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
+ */
+
+metadata {
+  definition(name: "Ring Virtual Glass Break Sensor", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
+    capability "Battery"
+    capability "Refresh"
+    capability "Sensor"
+    capability "Shock Sensor"
+    capability "TamperAlert"
+
+    attribute "bypassed", "enum", ["true", "false"]
+    attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
+    attribute "firmware", "string"
+    attribute "listening", "enum", ["listening", "inactive"]
+    attribute "testMode", "string"
+    // all = Detects in all modes
+    // monitored = Won't detect unless armed and monitored
+    attribute "sensorReporting", "enum", ["all", "monitored"]
+  }
+
+  preferences {
+    input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: false
+    input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
+    input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
+  }
+}
+
+void logInfo(msg) {
+  if (descriptionTextEnable) {
+    log.info msg
+  }
+}
+
+void logDebug(msg) {
+  if (logEnable) log.debug msg
+}
+
+void logTrace(msg) {
+  if (traceLogEnable) log.trace msg
+}
+
+void refresh() {
+  parent.refresh(device.getDataValue("src"))
+}
+
+void setValues(final Map deviceInfo) {
+  logDebug "setValues(${deviceInfo})"
+
+  if (deviceInfo.faulted != null) {
+    checkChanged("shock", deviceInfo.faulted ? "detected" : "clear")
+  }
+
+  if (deviceInfo.batteryLevel != null) {
+    checkChanged("battery", deviceInfo.batteryLevel, "%")
+  }
+
+  if (deviceInfo.deviceActive != null) {
+    checkChanged("listening", deviceInfo.deviceActive ? 'listening' : 'inactive')
+  }
+
+  // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
+  for (final entry in deviceInfo.subMap(["bypassed", "commStatus", "firmware", "tamper", "sensorReporting", "testMode"])) {
+    checkChanged(entry.key, entry.value)
+  }
+
+  // Update state values
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate',  'signalStrength'])
+  if (stateValues) {
+	  state << stateValues
+  }
+}
+
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('firmware') // Is an attribute now
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
+    logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
+  }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
+}

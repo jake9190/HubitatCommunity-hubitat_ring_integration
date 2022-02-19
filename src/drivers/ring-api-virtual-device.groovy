@@ -1171,6 +1171,7 @@ def getChildByZID(final String zid) {
   "sensor.tilt": "Ring Virtual Contact Sensor",
   "sensor.zone": "Ring Virtual Contact Sensor",
   "sensor.motion": "Ring Virtual Motion Sensor",
+  "sensor.glassbreak": "Ring Virtual Glass Break Sensor",
   "sensor.flood-freeze": "Ring Virtual Alarm Flood & Freeze Sensor",
   "listener.smoke-co": "Ring Virtual Alarm Smoke & CO Listener",
   "alarm.co": "Ring Virtual CO Alarm",
