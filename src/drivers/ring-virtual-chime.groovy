@@ -52,8 +52,6 @@ void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-@Field final static Integer VOLUME_INC = 5
-
 def parse(String description) {
   logDebug "description: ${description}"
 }
@@ -259,3 +257,5 @@ void checkChangedDataValue(final String name, final value) {
     device.updateDataValue(name, value)
   }
 }
+
+@Field final static Integer VOLUME_INC = 5

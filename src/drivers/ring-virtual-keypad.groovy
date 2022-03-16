@@ -45,8 +45,6 @@ metadata {
   }
 }
 
-@Field final static Integer VOLUME_INC = 5
-
 void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
@@ -211,6 +209,8 @@ boolean checkChanged(final String attribute, final newStatus, final String unit=
   sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
   return changed
 }
+
+@Field final static Integer VOLUME_INC = 5
 
 @Field final static Map<Integer, String> POWER_SAVE = [
   'off': 'off',

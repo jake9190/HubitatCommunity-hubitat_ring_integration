@@ -73,8 +73,6 @@ void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-@Field final static Integer VOLUME_INC = 5
-
 void createDevices() { parent.createDevices() }
 
 void refresh() {
@@ -394,6 +392,8 @@ void checkChangedDataValue(final String name, final value) {
     device.updateDataValue(name, value)
   }
 }
+
+@Field final static Integer VOLUME_INC = 5
 
 @Field final static Map RING_TO_HSM_MODE_MAP = [
   "home": [set: "armHome", status: "armedHome"],
