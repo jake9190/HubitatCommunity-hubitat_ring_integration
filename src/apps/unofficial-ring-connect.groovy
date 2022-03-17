@@ -55,6 +55,8 @@ preferences {
 }
 
 def login() {
+  app.removeSetting('twoStepCode')
+
   dynamicPage(name: "login", title: "Log into Your Ring Account", nextPage: "secondStep", uninstall: true) {
     section("Ring Account Information") {
       paragraph "<h2>NOTE: Ring now requires two-factor authentication. You will be prompted for your code on the next page."
@@ -69,6 +71,8 @@ def secondStep() {
     resetTokens(true)
   }
 
+  unschedule('apiRequestAuthRefreshToken')
+
   if (!authPassword() && state.authResponse != "challenge") {
     return dynamicPage(name: "secondStep", title: "Authenticate failed!", nextPage: "login", uninstall: true) {
       section {
@@ -76,6 +80,7 @@ def secondStep() {
       }
     }
   }
+
   dynamicPage(name: "secondStep", title: "Check text messages or email for the 2-step authentication code", nextPage: "authCheck", uninstall: true) {
     section("2-Step Code") {
       input "twoStepCode", "password", title: "Code", description: "2-Step Temporary Code", required: true
@@ -623,8 +628,7 @@ Integer getRandomInteger(Integer bound) {
 
 void configureSnapshotPolling() {
   logDebug "configureSnapshotPolling()"
-  unschedule(prepSnapshots)
-  unschedule(getSnapshots)
+  unschedule(updateSnapshots)
   if (snapshotPolling) {
     final Integer interval = snapshotInterval?.toInteger() ?: 600
 
@@ -638,27 +642,27 @@ void configureSnapshotPolling() {
 
     if (interval == 30) {
       final String secString = currSec > altSec ? "${altSec},${currSec}" : "${currSec},${altSec}"
-      schedule("${secString} * * * * ? *", prepSnapshots)
+      schedule("${secString} * * * * ? *", updateSnapshots)
     }
     else if(interval == 60) {
-      schedule("${currSec} * * * * ? *", prepSnapshots)
+      schedule("${currSec} * * * * ? *", updateSnapshots)
     }
     else if(interval == 90) {
       final Integer startMin = currMin % 3 // Minute to start job
       final Integer offset = currSec >= 30 ? 1 : 0
-      schedule("${currSec} ${startMin}/3 * * * ? *", prepSnapshots)
-      schedule("${altSec} ${(startMin + 1 + offset) % 3}/3 * * * ? *", prepSnapshots, [overwrite: false])
+      schedule("${currSec} ${startMin}/3 * * * ? *", updateSnapshots)
+      schedule("${altSec} ${(startMin + 1 + offset) % 3}/3 * * * ? *", updateSnapshots, [overwrite: false])
     }
     else if(interval in 120..1800) { // Minutes
         final Integer mins = interval / 60
-        schedule("${currSec} ${currMin % mins}/${mins} * * * ? *", prepSnapshots)
+        schedule("${currSec} ${currMin % mins}/${mins} * * * ? *", updateSnapshots)
     }
     else if(interval in 3600..43200) { // Hours
         final Integer hours = interval / 60 / 60
-        schedule("${currSec} ${currMin} 0/${hours} * * ? *", prepSnapshots)
+        schedule("${currSec} ${currMin} 0/${hours} * * ? *", updateSnapshots)
     }
     else if(interval == 86400) { // Hours
-        schedule("${currSec} ${currMin} ${getRandomInteger(24)} * * ? *", prepSnapshots)
+        schedule("${currSec} ${currMin} ${getRandomInteger(24)} * * ? *", updateSnapshots)
     }
     else {
       log.error ("configureSnapshotPolling Unsupported interval ${interval}")
@@ -666,31 +670,20 @@ void configureSnapshotPolling() {
   }
 }
 
-void prepSnapshots() {
-  // This gets the snapshot timestamps just for just individual cameras. This is better than using snapshot-update,
-  // so battery powered devices can sleep if the user wants them to
+void updateSnapshots() {
+  // This gets the snapshot timestamps only for selected timestamps, then retrieves those snapshots after a delay.
+  // This is better than using snapshot-update, so battery powered devices can sleep if the user wants them to
   apiRequestSnapshotTimestamps(getEnabledSnappables()?.collect { final String it -> getRingDeviceId(it).toInteger() })
-
-  runIn(15, getSnapshots)
 }
 
 // Kept for compatibility with old installs
-void prepSnapshotsAlt() {
+void prepSnapshots() {
+  unschedule(prepSnapshots)
   unschedule(prepSnapshotsAlt)
   configureSnapshotPolling()
 }
-
-void getSnapshots() {
-  logDebug "getSnapshots()"
-
-  if (!state.snapshots) {
-    state.snapshots = [:]
-  }
-
-  for (final String snappable in getEnabledSnappables()) {
-    apiRequestSnapshotImage(snappable)
-  }
-}
+void prepSnapshotsAlt() { prepSnapshots() }
+void getSnapshots() {} // Don't need to do anything because this was only called with runIn
 
 def serveSnapshot() {
   final String ringDeviceId = java.net.URLDecoder.decode(params.ringDeviceId, "UTF-8")
@@ -706,8 +699,7 @@ def serveSnapshot() {
 
   String strImg
   if (!img || img.length == 0) {
-    logTrace "Default to missing image"
-    log.warn "Default to missing image"
+    logTrace "Default to missing image for ${ringDeviceId}"
     strImg = MISSING_IMG
   } else {
     strImg = "data:image/png;base64,${img.encodeBase64().toString()}"
@@ -1260,39 +1252,61 @@ void apiRequestTickets(final String dni) {
  * Makes a ring api request for location data
  * @param dni DNI of device to request image for
  */
-void apiRequestSnapshotImage(final String dni) {
-  logTrace("apiRequestSnapshotImage(${dni})")
+void apiRequestSnapshotImages(final Map data) {
+  logTrace("apiRequestSnapshotImages(${data})")
 
-  Map params = [
-    uri: CLIENTS_API_BASE_URL + '/snapshots/image/' + getRingDeviceId(dni),
-    requestContentType: JSON
-  ]
+  if (!state.snapshots) {
+    state.snapshots = [:]
+  }
 
-  addHeadersToHttpRequest(params, [hardware_id: true, extra: ["Accept": "application.vnd.api.v11+json"]])
+  for (final doorbotId in data.doorbotIds) {
+    final localDoorbotId = doorbotId.toInteger()
 
-  apiRequestAsyncCommon("apiRequestSnapshotImage", "Get", params, false, { resp ->
-    logTrace "apiRequestSnapshotImage succeeded for ${dni}"
-    if (resp.getData()) {
-      state.snapshots[dni] = resp.getData().getBytes()
-    }
-  })
+    Map params = [uri: CLIENTS_API_BASE_URL + '/snapshots/image/' + localDoorbotId, requestContentType: JSON]
+
+    addHeadersToHttpRequest(params, [hardware_id: true, extra: ["Accept": "application.vnd.api.v11+json"]])
+
+    apiRequestSyncCommon("apiRequestSnapshotImages", false, params,{ Map reqParams ->
+      httpGet(reqParams) { resp ->
+        logTrace "apiRequestSnapshotImages succeeded for ${localDoorbotId}"
+        if (resp.getData()) {
+          byte[] array = new byte[resp.data.available()];
+          resp.data.read(array);
+          state.snapshots[getFormattedDNI(localDoorbotId)] = array
+        }
+      }
+    })
+  }
 }
 
 /**
  * Makes a ring api request for snapshot timestamps
- * @param snappables List of snappable device ids to get timestamps for
+ * @param doorbotIds List of snappable doorbot ids to get timestamps for
  */
-void apiRequestSnapshotTimestamps(List snappables) {
-  logTrace("apiRequestSnapshotTimestamps(${snappables})")
+void apiRequestSnapshotTimestamps(List doorbotIds) {
+  logTrace("apiRequestSnapshotTimestamps(${doorbotIds})")
 
   Map params = makeClientsApiParams('/snapshots/timestamps',
-                                    [body: [doorbot_ids: snappables], requestContentType: JSON],
+                                    [body: [doorbot_ids: doorbotIds], requestContentType: JSON],
                                     [hardware_id: true, extra: ["Accept": "application.vnd.api.v11+json"]])
 
   apiRequestAsyncCommon("apiRequestSnapshotTimestamps", "Post", params, false, { resp ->
     def body = resp.getData() ? resp.getJson() : null
-    logTrace "apiRequestSnapshotTimestamps for ${snappables} succeeded, body: ${JsonOutput.toJson(body)}"
-    state.lastSnapshotTimestamps = body
+    logTrace "apiRequestSnapshotTimestamps for ${doorbotIds} succeeded, body: ${JsonOutput.toJson(body)}"
+
+    // @todo Consider comparing new timestamps to old timestamps. Could use this to avoid getting a snapshot when there is no update
+    state.lastSnapshotTimestamps = body.timestamps
+
+    final Set returnedDoorbotIds = body.timestamps.collect { it.doorbot_id }.toSet()
+
+    logTrace "apiRequestSnapshotTimestamps returned these doorbots: ${returnedDoorbotIds}"
+    final Set nonReturnedDoorbotIds = doorbotIds.toSet() - returnedDoorbotIds
+
+    if (nonReturnedDoorbotIds) {
+      log.warn ("apiRequestSnapshotTimestamps returned fewer doorbot ids than requested. Missing doorbots: ${nonReturnedDoorbotIds}")
+    }
+
+    runIn(15, apiRequestSnapshotImages, [data: [doorbotIds: returnedDoorbotIds]])
   })
 }
 
