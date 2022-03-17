@@ -68,8 +68,6 @@ def secondStep() {
   if (!state.isAppTesting) {
     resetTokens(true)
   }
-  // Generate an ID so that Ring doesn't think these are all coming from the same device
-  state.appDeviceId = UUID.randomUUID().toString()
 
   if (!authPassword() && state.authResponse != "challenge") {
     return dynamicPage(name: "secondStep", title: "Authenticate failed!", nextPage: "login", uninstall: true) {
@@ -800,6 +798,10 @@ boolean authTwoFactorChallenge(final twoFactorCode) {
 // Makes a ring api auth password request
 boolean apiRequestAuthPassword() {
   logTrace("apiRequestAuthPassword()")
+
+  // Generate an ID so that Ring doesn't think these are all coming from the same device
+  state.appDeviceId = UUID.randomUUID().toString()
+
   state.authResponse = "apiRequestAuthPassword: This shouldn't happen"
 
   Map params = makeAuthParams([
