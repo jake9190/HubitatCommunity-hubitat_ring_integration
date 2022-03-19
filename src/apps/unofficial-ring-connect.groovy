@@ -379,10 +379,18 @@ def deviceDiscovery() {
     }
   }
 
-  loadAvailableDevices()
+  List apiResponse = apiRequestDevices()
+
+  if (!apiResponse) {
+    return dynamicPage(name: "deviceDiscovery", title: "No devices found!", nextPage: "mainPage", uninstall: true) {
+      section("apiRequestDevices returned nothing. See logs for more details") { paragraph "" }
+    }
+  }
+
+  loadAvailableDevices(apiResponse)
 
   return dynamicPage(name: "deviceDiscovery", title: "Discovery Started!", nextPage: "addDevices", uninstall: true) {
-    section("Making a call to Ring. Are these your devices?  Please select the devices you want created as Hubitat devices.") {
+    section("Select the devices you want created as Hubitat devices") {
       input "selectedDevices", "enum", title: "Select Ring Device(s)", multiple: true, options: getAvailableDevicesOptions()
     }
   }
@@ -395,12 +403,12 @@ void donationPageSection() {
 }
 
 // Sets state.devices to a List of Maps of the form: {kind=base_station_v1, name=Ring Alarm Base Station - Alarm Base Station, id=dev_id_num}
-void loadAvailableDevices() {
+void loadAvailableDevices(List apiRequestDevicesResponse) {
   logDebug "loadAvailableDevices()"
 
   state.devices = []
 
-  for (final Map node in apiRequestDevices()) {
+  for (final Map node in apiRequestDevicesResponse) {
     final String kind = node?.kind
 
     if (!settings.selectedLocations.contains(node?.location_id)) {
@@ -1003,7 +1011,7 @@ List apiRequestDevices() {
 
       logTrace "apiRequestDevice succeeded, body: ${JsonOutput.toJson(body)}"
 
-      // @note Currently "beams" and "other" are being left out
+      // @note Intenionally leaving out "beams" because they are handled by the beams bridge devices
       retval = []
       for (final String key in ['authorized_doorbots', 'base_stations', 'beams_bridges', 'chimes', 'doorbots', 'stickup_cams']) {
         retval += body[key]
@@ -1044,6 +1052,7 @@ void apiRequestDeviceRefresh(final String dni) {
  * @param dni DNI of device to refresh
  * @param kind Kind of device ("chimes", etc.)
  * @param action Action to perform on device ("floodlight_light_off", etc)
+ * @param query Action to perform on device ([kind: "motion"], etc)
  */
 void apiRequestDeviceControl(final String dni, final String kind, final String action, final Map query) {
   logTrace("apiRequestDeviceControl(${dni}, ${kind}, ${action}, ${query})")
@@ -1266,15 +1275,16 @@ void apiRequestSnapshotImages(final Map data) {
 
     addHeadersToHttpRequest(params, [hardware_id: true, extra: ["Accept": "application.vnd.api.v11+json"]])
 
-    apiRequestSyncCommon("apiRequestSnapshotImages", false, params,{ Map reqParams ->
+    apiRequestSyncCommon("apiRequestSnapshotImages", false, params, { Map reqParams ->
+      byte[] retval = null
       httpGet(reqParams) { resp ->
         logTrace "apiRequestSnapshotImages succeeded for ${localDoorbotId}"
         if (resp.getData()) {
-          byte[] array = new byte[resp.data.available()];
-          resp.data.read(array);
-          state.snapshots[getFormattedDNI(localDoorbotId)] = array
+          retval = new byte[resp.data.available()]
+          resp.data.read(retval)
         }
       }
+      state.snapshots[getFormattedDNI(localDoorbotId)] = retval
     })
   }
 }
@@ -1297,10 +1307,10 @@ void apiRequestSnapshotTimestamps(List doorbotIds) {
     // @todo Consider comparing new timestamps to old timestamps. Could use this to avoid getting a snapshot when there is no update
     state.lastSnapshotTimestamps = body.timestamps
 
-    final Set returnedDoorbotIds = body.timestamps.collect { it.doorbot_id }.toSet()
+    final List returnedDoorbotIds = body.timestamps.collect { it.doorbot_id }
 
     logTrace "apiRequestSnapshotTimestamps returned these doorbots: ${returnedDoorbotIds}"
-    final Set nonReturnedDoorbotIds = doorbotIds.toSet() - returnedDoorbotIds
+    final Set nonReturnedDoorbotIds = doorbotIds.toSet() - returnedDoorbotIds.toSet()
 
     if (nonReturnedDoorbotIds) {
       log.warn ("apiRequestSnapshotTimestamps returned fewer doorbot ids than requested. Missing doorbots: ${nonReturnedDoorbotIds}")

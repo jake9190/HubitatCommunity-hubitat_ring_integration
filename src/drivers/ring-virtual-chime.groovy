@@ -14,6 +14,9 @@
  *  for the specific language governing permissions and limitations under the License.
  */
 
+// @todo Consider using /ringtones
+// @todo Consider being able to set do_not_disturb
+
 import groovy.transform.Field
 
 metadata {
@@ -25,7 +28,6 @@ metadata {
     capability "Polling"
     capability "Tone"
 
-    attribute "firmware", "string"
     attribute "rssi", "number"
     attribute "wifi", "string"
 
@@ -67,25 +69,21 @@ def refresh() {
   parent.apiRequestDeviceHealth(device.deviceNetworkId, "chimes")
 }
 
-def beep() {
-  playMotion()
-}
+void beep() { playMotion() }
 
-def playMotion() {
+void playMotion() {
   if (!isMuted()) {
     parent.apiRequestDeviceControl(device.deviceNetworkId, "chimes", "play_sound", [kind: "motion"])
-  }
-  else {
-    logInfo "No motion because muted"
+  } else {
+    logInfo "playMotion: Not playing because device is muted"
   }
 }
 
-def playDing() {
+void playDing() {
   if (!isMuted()) {
     parent.apiRequestDeviceControl(device.deviceNetworkId, "chimes", "play_sound", [kind: "ding"])
-  }
-  else {
-    logInfo "No ding because muted"
+  } else {
+    logInfo "playDing: Not playing because device is muted"
   }
 }
 
@@ -98,9 +96,9 @@ void setVolume(volumelevel) {
   if (currentVolume != volumelevel) {
     logTrace "requesting volume change to ${volumelevel}"
 
-    final Integer sentValue = volumeLevel / 10
+    final Integer sentValue = volumelevel / 10
 
-    apiRequestDeviceSet(device.deviceNetworkId, "chimes", null, ["chime[settings][volume]": sentValue])
+    parent.apiRequestDeviceSet(device.deviceNetworkId, "chimes", null, ["chime[settings][volume]": sentValue])
   }
   else {
     logInfo "Already at volume."
@@ -155,24 +153,12 @@ void updateVolumeInternal(volume) {
   }
 }
 
-void playText(text, volumelevel) {
-  log.error "Not implemented! playText(text, volumelevel)"
-}
-void playTextAndRestore(text, volumelevel) {
-  log.error "Not implemented! playTextAndRestore(text, volumelevel)"
-}
-void playTextAndResume(text, volumelevel) {
-  log.error "Not implemented! playTextAndResume(text, volumelevel)"
-}
-def playTrack(trackuri, volumelevel) {
-  log.error "Not implemented! playTrack(trackuri, volumelevel)"
-}
-def playTrackAndRestore(trackuri, volumelevel) {
-  log.error "Not implemented! playTrackAndRestore(trackuri, volumelevel)"
-}
-def playTrackAndResume(trackuri, volumelevel) {
-  log.error "Not implemented! playTrackAndResume(trackuri, volumelevel)"
-}
+void playText(text, volumelevel) { log.error "playText not implemented!" }
+void playTextAndRestore(text, volumelevel) { log.error "playTextAndRestore not implemented!" }
+void playTextAndResume(text, volumelevel) { log.error "playTextAndResume not implemented!" }
+def playTrack(trackuri, volumelevel) { log.error "playTrack not implemented!" }
+def playTrackAndRestore(trackuri, volumelevel) { log.error "playTrackAndRestore not implemented!" }
+def playTrackAndResume(trackuri, volumelevel) { log.error "playTrackAndResume not implemented!" }
 
 private boolean isMuted() {
   return device.currentValue("mute") == "muted"
@@ -194,7 +180,6 @@ void handleDeviceControl(final String action, final Map msg, final Map query) {
 
 void handleDeviceSet(final String action, final Map msg, final Map query) {
   if (action == null) {
-    // @todo May be able to get this value from settings.volume
     if (query?.containsKey("chime[settings][volume]")) {
       updateVolumeInternal(query["chime[settings][volume]"])
     }
@@ -220,18 +205,6 @@ void handleRefresh(final Map msg) {
     updateVolumeInternal(msg.settings.volume)
   }
 
-  if (msg.health) {
-    Map health = msg.health
-
-    if (health.firmware_version) {
-      checkChanged("firmware", health.firmware_version)
-    }
-
-    if (health.rssi) {
-      checkChanged("rssi", health.rssi)
-    }
-  }
-
   if (msg.kind != null) {
     checkChangedDataValue("kind", msg.kind)
   }
@@ -239,7 +212,7 @@ void handleRefresh(final Map msg) {
 
 void runCleanup() {
   state.remove('lastUpdate')
-  device.removeDataValue("firmware") // Is an attribute now
+  device.removeDataValue("firmware") // Doesn't appear to be available for this device
   device.removeDataValue("device_id")
 }
 
@@ -258,4 +231,4 @@ void checkChangedDataValue(final String name, final value) {
   }
 }
 
-@Field final static Integer VOLUME_INC = 5
+@Field final static Integer VOLUME_INC = 10 // Chime volume is only in multiples of 10
