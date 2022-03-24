@@ -1365,7 +1365,7 @@ Object apiRequestSyncCommon(final String functionName, boolean reauthCall, Map p
       return null
     }
 
-    log.error "$functionName HTTP error. Exception: ${ex}. ${resp.getData()}"
+    log.error "$functionName HTTP error. Exception: ${ex.getMessage()}. ${resp.getData()}"
   }
   catch (ConnectTimeoutException | HttpHostConnectException | SSLPeerUnverifiedException | SSLHandshakeException | \
          SocketTimeoutException | NoRouteToHostException | UnknownHostException | ResponseParseException e) {
