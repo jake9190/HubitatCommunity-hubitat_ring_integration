@@ -180,8 +180,7 @@ def mainPage() {
           String description = "Click here to manage this device"
 
           if (child.deviceNetworkId.startsWith(RING_API_DNI)) {
-            description += "\nThis device manages the WebSockets connection for your Ring hubs/bridges. You don't need to know what this means but I wanted to tell you so I can justify why it had to exist and why you have to create it."
-            description += "To create children of the Ring hubs/bridges, you must use this device's \"createDevices\" command device"
+            description += "\nThis device manages the WebSockets connection for your Ring Alarm Hub/Lighting Bridge. To create children of the Ring Alarm Hub/Lighting Bridge, you must use this device's \"createDevices\" command device"
           }
 
           href child.deviceNetworkId, description: description, title: child.label, url: "/device/edit/${child.id}"
@@ -760,15 +759,13 @@ void resetTokens(boolean resetRefresh = false) {
   }
 }
 
-@Field static final Map defaultHttpHeaders = [
-  'User-Agent': 'android:com.ringapp:3.25.0(26452333)',
-  'app_brand': 'ring',
-  'Accept-Encoding': 'gzip, deflate',
-  'Connection': 'Keep-Alive',
-]
-
 void addHeadersToHttpRequest(Map params, Map args = [:]) {
-  params.headers = defaultHttpHeaders
+  params.headers = [
+    'User-Agent': 'android:com.ringapp:3.25.0(26452333)',
+    'app_brand': 'ring',
+    'Accept-Encoding': 'gzip, deflate',
+    'Connection': 'Keep-Alive',
+  ]
   params.headers['Host'] = new URI(params.uri).host
   if (args.hardware_id) {
     params.headers['Hardware_ID'] = state.appDeviceId
