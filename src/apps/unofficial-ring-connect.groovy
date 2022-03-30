@@ -726,7 +726,7 @@ Set<String> getEnabledSnappables() {
   return state.snappables?.findAll( { it.value })?.keySet()
 }
 
-@Field final static Map<Integer, String> snapshotIntervals = [
+@Field final static Map snapshotIntervals = [
   30: "30 Seconds",
   60: "1 Minute",
   90: "1.5 Minutes",
@@ -748,7 +748,7 @@ Set<String> getEnabledSnappables() {
   28800: "8 Hours",
   43200: "12 Hours",
   86400: "24 Hours"
-]
+].asImmutable()
 
 void resetTokens(boolean resetRefresh = false) {
   state.access_token = null
@@ -1696,7 +1696,7 @@ String getRingDeviceId(String id) {
 @Field final static String JSON = 'application/json'
 @Field final static String TEXT = 'text/plain'
 
-@Field final static HashSet<String> RINGABLES = [
+@Field final static Set RINGABLES = [
   "doorbell",
   "doorbell_v3",
   "doorbell_v4",
@@ -1710,7 +1710,7 @@ String getRingDeviceId(String id) {
   "lpd_v2",
   "lpd_v4",
   "jbox_v1"
-]
+].toSet().asImmutable()
 
 @Field final static Map DEVICE_TYPES = [
   "base_station_k1": [name: "Ring Alarm Base Station", driver: "SHOULD NOT SEE THIS"],
@@ -1745,4 +1745,4 @@ String getRingDeviceId(String id) {
   "stickup_cam_v3": [name: "Ring Stick Up Cam", driver: "Ring Virtual Camera", dingable: true],
   "stickup_cam_v4": [name: "Ring Spotlight Cam Battery", driver: "Ring Virtual Light", dingable: true],
   "stickup_cam": [name: "Ring Original Stick Up Cam", driver: "Ring Virtual Camera", dingable: true]
-]
+].asImmutable()

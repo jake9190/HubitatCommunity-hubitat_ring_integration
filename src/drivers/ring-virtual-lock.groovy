@@ -107,4 +107,4 @@ boolean checkChanged(final String attribute, final newStatus, final String unit=
   return changed
 }
 
-@Field final static HashSet<String> PHYSICAL_LOCK_IMPUSES = ['locked', 'unlocked', 'locked.by-manual', 'unlocked.by-manual']
+@Field final static Set PHYSICAL_LOCK_IMPUSES = ['locked', 'unlocked', 'locked.by-manual', 'unlocked.by-manual'].toSet().asImmutable()

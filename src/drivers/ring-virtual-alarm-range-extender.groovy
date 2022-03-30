@@ -100,12 +100,12 @@ boolean checkChanged(final String attribute, final newStatus, final String unit=
   return changed
 }
 
-@Field final static Map<String, String> AC_STATUS = [
+@Field final static Map AC_STATUS = [
   ok: "connected",
   error: "disconnected",
-]
+].asImmutable()
 
-@Field final static Map<String, String> POWER_SOURCE = [
+@Field final static Map POWER_SOURCE = [
   ok: "mains",
   error: "battery",
-]
+].asImmutable()

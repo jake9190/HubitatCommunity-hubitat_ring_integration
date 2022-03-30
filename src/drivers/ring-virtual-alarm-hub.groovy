@@ -399,20 +399,20 @@ void checkChangedDataValue(final String name, final value) {
   "home": [set: "armHome", status: "armedHome"],
   "away": [set: "armAway", status: "armedAway"],
   "off": [set: "disarm", status: "disarmed"]
-]
+].asImmutable()
 
-@Field final static Map<String, String> AC_STATUS = [
+@Field final static Map AC_STATUS = [
   ok: "connected",
   error: "disconnected",
-]
+].asImmutable()
 
-@Field final static Map<String, String> POWER_SOURCE = [
+@Field final static Map POWER_SOURCE = [
   ok: "mains",
   error: "battery",
-]
+].asImmutable()
 
-@Field final static Map<String, String> MODES = [
-  "none": "off",
-  "some": "home",
-  "all": "away"
-]
+@Field final static Map MODES = [
+  none: "off",
+  some: "home",
+  all: "away"
+].asImmutable()

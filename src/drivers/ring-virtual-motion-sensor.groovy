@@ -142,8 +142,8 @@ boolean checkChanged(final String attribute, final newStatus, final String unit=
   return changed
 }
 
-@Field final static Map<Integer, String> MOTION_SENSITIVITY = [
+@Field final static Map MOTION_SENSITIVITY = [
   0: 'high',
   1: 'medium',
   2: 'low',
-]
+].asImmutable()

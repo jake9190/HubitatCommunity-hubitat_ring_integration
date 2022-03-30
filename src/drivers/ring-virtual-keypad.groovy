@@ -212,7 +212,7 @@ boolean checkChanged(final String attribute, final newStatus, final String unit=
 
 @Field final static Integer VOLUME_INC = 5
 
-@Field final static Map<Integer, String> POWER_SAVE = [
+@Field final static Map POWER_SAVE = [
   'off': 'off',
   'extended': 'on',
-]
+].asImmutable()

@@ -138,13 +138,13 @@ boolean checkChanged(final String attribute, final newStatus, final String unit=
   return changed
 }
 
-@Field final HashSet<String> NO_BATTERY_DEVICES = ["ring-beams-c5000"]
-@Field final HashSet<String> NO_BRIGHTNESS_DEVICES= ["ring-beams-c5000"]
+@Field final Set NO_BATTERY_DEVICES = ["ring-beams-c5000"].toSet().asImmutable()
+@Field final Set NO_BRIGHTNESS_DEVICES= ["ring-beams-c5000"].toSet().asImmutable()
 
-@Field final static Map<Integer, String> MOTION_SENSITIVITY = [
+@Field final static Map MOTION_SENSITIVITY = [
   0: 'high', // Custom 5
   63: 'custom4',
   127: 'medium', // Custom 3
   191: 'custom2',
   255: 'low', // Custom 1
-]
+].asImmutable()

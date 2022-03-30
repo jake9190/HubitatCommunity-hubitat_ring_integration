@@ -98,7 +98,7 @@ boolean checkChanged(final String attribute, final newStatus, final String unit=
   return changed
 }
 
-@Field final static Map<String, String> ALARM_STATUS = [
+@Field final static Map ALARM_STATUS = [
   active: 'detected',
   inactive: 'clear',
-]
+].asImmutable()

@@ -690,18 +690,18 @@ def parse(String description) {
 
 // Keys to copy from general.v2 for a subset of devices
 // @note lastCommTime seems to be useless for hub.redsky. It's always zero
-@Field final static List<String> generalV2Keys = [
+@Field final static List generalV2Keys = [
   'acStatus', 'batteryLevel', 'commStatus', 'componentDevices', 'fingerprint', 'lastCommTime', 'lastUpdate',
   'manufacturerName', 'nextExpectedWakeup', 'serialNumber'
-]
+].asImmutable()
 
 // Keys to copy from device.v1 for all devices
 // @note For some devices, testMode is boolean, for some it is a string (sensor.glassbreak)
-@Field final static List<String> deviceV1Keys = [
+@Field final static List deviceV1Keys = [
   'alarmInfo', 'batteryBackup', 'co', 'faulted', 'flood', 'freeze', 'groupMembers', 'lastConnectivityCheckError',
   'lastNetworkLatencyEvent', 'locked', 'networks', 'networkConnection', 'powerSave', 'sensitivity', 'siren', 'status',
   'smoke', 'testMode', 'transitionDelayEndTimestamp'
-]
+].asImmutable()
 
 /**
  * Passes all parsed passThrus to sendPassthru
@@ -1160,12 +1160,12 @@ def getChildByZID(final String zid) {
   return getChildDevice(getFormattedDNI(zid))
 }
 
-@Field final static HashSet<String> ALARM_CAPABLE_KINDS = [
+@Field final static Set ALARM_CAPABLE_KINDS = [
   "base_station_k1",
   "base_station_v1",
-]
+].toSet().asImmutable()
 
-@Field final static Map<String, String> DEVICE_TYPE_NAMES = [
+@Field final static Map DEVICE_TYPE_NAMES = [
   // Alarm devices
   "sensor.contact": "Ring Virtual Contact Sensor",
   "sensor.tilt": "Ring Virtual Contact Sensor",
@@ -1191,11 +1191,11 @@ def getChildByZID(final String zid) {
   "motion-sensor.beams": "Ring Virtual Beams Motion Sensor",
   "group.light-group.beams": "Ring Virtual Beams Group",
   "beams_bridge_v1": "Ring Virtual Beams Bridge",
-]
+].asImmutable()
 
 // The alarm hub and beams bridge are made up of multiple composite devices. Messages for these device types will be
 // rolled up into the alarm hub
-@Field final static HashSet<String> HUB_COMPOSITE_DEVICES = [
+@Field final static Set HUB_COMPOSITE_DEVICES = [
   "access-code.vault",
   "access-code",
   "adapter.ringnet",
@@ -1204,26 +1204,26 @@ def getChildByZID(final String zid) {
   "security-panel",
   "hub.kili",
   "hub.redsky",
-]
+].toSet().asImmutable()
 
-@Field final static HashSet<String> IMPULSE_ONLY_DEVICE_TYPES = [
+@Field final static Set IMPULSE_ONLY_DEVICE_TYPES = [
   "access-code",
   "access-code.vault",
   "adapter.zigbee",
   "adapter.zwave",
-]
+].toSet().asImmutable()
 
-@Field final static HashSet<String> BATTERY_STATUS_DEVICE_TYPES = [
+@Field final static Set BATTERY_STATUS_DEVICE_TYPES = [
   "hub.kili",
   "hub.redsky",
   "range-extender.zwave",
   "security-keypad"
-]
+].toSet().asImmutable()
 
-@Field final static HashSet<String> ALARM_HUB_PARTIAL_DEVICE_TYPES = [
+@Field final static Set ALARM_HUB_PARTIAL_DEVICE_TYPES = [
   "access-code",
   "access-code.vault",
   "adapter.zigbee",
   "adapter.zwave",
   "security-panel"
-]
+].toSet().asImmutable()
