@@ -2,7 +2,7 @@
   "packageName": "Hubitat Ring Integration (Unofficial)",
   "author": "codahq",
   "version": "0.4.0",
-  "betaVersion": "0.5.0.7",
+  "betaVersion": "0.5.0.12",
   "minimumHEVersion": "0.0",
   "dateReleased": "2022-01-20",
   "releaseNotes": "Add support for Chime V2 and Alarm Pro",
