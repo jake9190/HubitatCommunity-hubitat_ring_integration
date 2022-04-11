@@ -69,10 +69,6 @@ def login() {
 def secondStep() {
   unschedule()
 
-  if (!state.isAppTesting) {
-    resetTokens(true)
-  }
-
   if (!authPassword() && state.authResponse != "challenge") {
     return dynamicPage(name: "secondStep", title: "Authenticate failed!", nextPage: "login", uninstall: true) {
       section {
@@ -750,13 +746,10 @@ Set<String> getEnabledSnappables() {
   86400: "24 Hours"
 ].asImmutable()
 
-void resetTokens(boolean resetRefresh = false) {
+// Resets the temporary access token. state.refresh_token can be used to get a net access token
+void resetAccessToken() {
   state.access_token = null
   state.access_token_expires = null
-
-  if (resetRefresh) {
-    state.refresh_token = null
-  }
 }
 
 void addHeadersToHttpRequest(Map params, Map args = [:]) {
@@ -793,6 +786,10 @@ boolean authTwoFactorChallenge(final twoFactorCode) {
 boolean apiRequestAuthPassword() {
   logTrace("apiRequestAuthPassword()")
 
+  resetAccessToken()
+  state.refresh_token = null
+  state.session_token = null
+
   // Generate an ID so that Ring doesn't think these are all coming from the same device
   state.appDeviceId = UUID.randomUUID().toString()
 
@@ -803,8 +800,6 @@ boolean apiRequestAuthPassword() {
     password: settings.password,
     username: settings.username
   ])
-
-  state.session_token = null
 
   return apiRequestAuthCommon("apiRequestAuthPassword", params)
 }
@@ -878,8 +873,6 @@ boolean apiRequestAuthCommon(final String funcName, final Map params) {
     final body = resp.getData()
 
     if (status == 400) {
-      resetTokens(true)
-
       if (body instanceof Map) {
         if (body.error?.contains('Verification Code')) {
           state.authResponse = resp.getData().error
@@ -892,19 +885,16 @@ boolean apiRequestAuthCommon(final String funcName, final Map params) {
     }
     else if (status == 412) {
       logInfo "2 Step Challenge"
-      resetTokens(true)
       state.holdRequests = true
       state.authResponse = "challenge"
       return false
     }
     else if (status == 429) {
-      resetTokens(true)
       state.holdRequests = true
       state.authResponse = "$funcName HTTP 429 error. Sending too many requests. Try again later"
     }
     else {
       logDebug "$funcName HTTP ${status} error. Exception: ${ex}. ${resp.getData()}"
-      resetTokens(true)
 
       if (body instanceof Map) {
         String errorDescription = body?.error_description
@@ -930,7 +920,6 @@ boolean apiRequestAuthCommon(final String funcName, final Map params) {
          SocketTimeoutException | NoRouteToHostException | UnknownHostException | ResponseParseException e) {
     state.authResponse = "$funcName. Authentication failed because of a transient HTTP error. ${e}"
     log.warn(state.authResponse)
-    resetTokens(true)
   }
 
   return false
@@ -1347,7 +1336,7 @@ Object apiRequestSyncCommon(final String functionName, boolean reauthCall, Map p
     else if (status == 401) {
       logDebug "$functionName HTTP 401"
 
-      resetTokens()
+      resetAccessToken()
 
       // If server hasn't said we're sending too many requests, try refreshing auth code
       if (!reauthCall && !state.holdRequests && authRefreshToken()) {
@@ -1357,7 +1346,7 @@ Object apiRequestSyncCommon(final String functionName, boolean reauthCall, Map p
     else if (status == 429) {
       log.error "$functionName HTTP 429. Sending too many requests. Retrying in 200 seconds. Report this error so proper handling can be added"
       log.debug "$functionName HTTP 429 headers: ${resp.getAllHeaders()}"
-      resetTokens()
+      resetAccessToken()
       state.holdRequests = true
       return null
     }
@@ -1460,7 +1449,7 @@ void apiRequestAsyncCallbackCommon(resp, Map data) {
   else if (status == 401) {
     logDebug "$functionName HTTP 401"
 
-    resetTokens()
+    resetAccessToken()
 
     // If server hasn't said we're sending too many requests, try refreshing auth code
     if (!data.reauthCall && !state.holdRequests && authRefreshToken()) {
@@ -1472,7 +1461,7 @@ void apiRequestAsyncCallbackCommon(resp, Map data) {
     log.error "$functionName HTTP 429. Sending too many requests. Retrying in 200 seconds. Report this error so proper handling can be added"
     log.debug "$functionName HTTP 429 headers: ${resp.getHeaders()}"
 
-    resetTokens()
+    resetAccessToken()
     state.holdRequests = true
 
     apiRequestAsyncCommonRetry(200, data) // Retry in 200 seconds
