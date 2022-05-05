@@ -129,8 +129,19 @@ void runCleanup() {
 
 // Creates all devices
 void createDevices() {
-  state.createDevices = true
+  createDevicesEnable()
   refresh()
+}
+
+void createDevicesEnable() {
+  logInfo "Enabling createDevices"
+  state.createDevices = true
+  // Turn createDevices back off after 60 seconds. This delay provides enough time for all hub refreshes to complete
+  runIn(60, createDevicesDisable)
+}
+void createDevicesDisable() {
+  logInfo "Disabling createDevices"
+  state.remove('createDevices') // Cleanup state
 }
 
 // @todo Should this delete the device as well?
@@ -649,8 +660,7 @@ def parse(String description) {
       // If the hub for these device infos doesn't exist then create it
       if (!getChildByZID(assetId)) {
         createChild(hubZid, [deviceType: assetKind, zid: assetId])
-        // If the hub was just created, create the rest of the devices too
-        state.createDevices = true
+        createDevicesEnable() // Create child devices after creating the hub
       }
 
       final boolean createDevices = state.createDevices && msgtype == "DeviceInfoDocGetList"
@@ -674,10 +684,6 @@ def parse(String description) {
       }
 
       final Long sendUpdateTime = now() - sendUpdateStart
-
-      if (createDevices) {
-        state.remove('createDevices') // Cleanup state
-      }
 
       logDebug "Handled msg for '${affectedDevices}' in ${now() - parseStart}ms (parseTime=${parseTime}ms, sendUpdate=${sendUpdateTime}ms)"
       return
