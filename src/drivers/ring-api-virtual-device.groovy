@@ -81,13 +81,13 @@ def setMode(mode) {
 }
 
 void setDebugImpulseTypeExcludeList(excludeList) {
-  state.debugImpulseTypeExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as HashSet<String>
+  state.debugImpulseTypeExcludeList = excludeList?.replaceAll("\\s","")?.split(",")?.toSet()
 }
 void setDebugImpulseCommandCompleteExcludeList(excludeList) {
-  state.debugImpulseCommandCompleteExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as HashSet<String>
+  state.debugImpulseCommandCompleteExcludeList = excludeList?.replaceAll("\\s","")?.split(",")?.toSet()
 }
 void setDebugImpulseErrorSetInfoExcludeList(excludeList) {
-  state.debugImpulseErrorSetInfoExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as HashSet<String>
+  state.debugImpulseErrorSetInfoExcludeList = excludeList?.replaceAll("\\s","")?.split(",")?.toSet()
 }
 
 def installed() {
@@ -147,7 +147,7 @@ void createDevicesDisable() {
 // @todo Should this delete the device as well?
 void excludeDevice(zid) {
   if (state.excludeDevices == null) {
-    state.excludeDevices = new HashSet<String>()
+    state.excludeDevices = [].toSet()
   }
   state.excludeDevices.add(zid.trim())
   logInfo "Zid ${zid} added to exclusion list"
@@ -326,14 +326,16 @@ void sendWebsocketRequest(Map msg) {
   final String request = JsonOutput.toJson([channel: "message", msg: msg])
   logTrace "request: ${request}"
 
-  if (request != null) {
-    try {
-      interfaces.webSocket.sendMessage(request)
-    }
-    catch (e) {
-      log.warn "exception: ${e} cause: ${ex.getCause()}"
-      log.warn "request type: ${type} request: ${request}"
-    }
+  if (device.currentValue("websocket") != "connected") {
+    log.error "Cannot send request because socket is not connected: ${request}"
+    return
+  }
+
+  try {
+    interfaces.webSocket.sendMessage(request)
+  }
+  catch (e) {
+    log.error "sendWebsocketRequest exception: ${e} cause: ${ex.getCause()}, request: ${request}"
   }
 }
 
@@ -773,9 +775,9 @@ Map<String, Map> parseDeviceInfoDocType(final Map json, final String assetId, fi
   boolean impulseExcludesInitialized = false
 
   // These will be lazily initialized on first use
-  HashSet<String> impulseTypeExcludeList = null
-  HashSet<String> impulseCommandCompleteExcludeList = null
-  HashSet<String> impulseErrorSetInfoExcludeList =  null
+  Set<String> impulseTypeExcludeList = null
+  Set<String> impulseCommandCompleteExcludeList = null
+  Set<String> impulseErrorSetInfoExcludeList =  null
 
   Map<String, Map> deviceInfos = [:].withDefault { [:] }
 
