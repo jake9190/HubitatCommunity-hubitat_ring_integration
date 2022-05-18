@@ -93,13 +93,14 @@ def installed() {
 def pollDeviceStatus() {
   logTrace "pollDeviceStatus()"
   refresh()
-  scheduleDevicePolling()
 }
 
 def scheduleDevicePolling() {
   unschedule(pollDeviceStatus)
   if (deviceStatusPollingEnable) {
-    runIn(1800, pollDeviceStatus)  //time in seconds
+        def Second = (new Date().format("s") as int)
+        Second = ((Second + 5) % 60)
+        schedule( "${ Second } 0/30 * ? * *", "refresh" )
   }
 }
 
