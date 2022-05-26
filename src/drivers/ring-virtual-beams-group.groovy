@@ -80,7 +80,7 @@ void setValues(final Map deviceInfo) {
   // Update state values
   Map stateValues = deviceInfo.subMap(['impulseType', 'lastUpdate'])
   if (stateValues) {
-	  state << stateValues
+      state << stateValues
   }
 }
 

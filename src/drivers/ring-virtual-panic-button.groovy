@@ -15,6 +15,7 @@
 
 metadata {
   definition(name: "Ring Virtual Panic Button", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
+    capability 'Actuator'
     capability "Battery"
     capability "Refresh"
     capability "TamperAlert"
@@ -62,7 +63,7 @@ void setValues(final Map deviceInfo) {
   // Update state values
   Map stateValues = deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength'])
   if (stateValues) {
-	  state << stateValues
+      state << stateValues
   }
 }
 

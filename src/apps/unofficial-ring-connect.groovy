@@ -1,5 +1,5 @@
 /**
- * 	Completely Unofficial Ring Connect App For Floodlights/Spotlights/Chimes Only (Don't hate me, Ring guys. I had to do it.)
+ *     Completely Unofficial Ring Connect App For Floodlights/Spotlights/Chimes Only (Don't hate me, Ring guys. I had to do it.)
  *
  *  Copyright 2019-2020 Ben Rimmasch
  *  Copyright 2022 Caleb Morse
