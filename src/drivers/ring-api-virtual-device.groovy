@@ -81,13 +81,13 @@ def setMode(mode) {
 }
 
 void setDebugImpulseTypeExcludeList(excludeList) {
-  state.debugImpulseTypeExcludeList = excludeList?.replaceAll("\\s","")?.split(",")?.toSet()
+  state.debugImpulseTypeExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as Set
 }
 void setDebugImpulseCommandCompleteExcludeList(excludeList) {
-  state.debugImpulseCommandCompleteExcludeList = excludeList?.replaceAll("\\s","")?.split(",")?.toSet()
+  state.debugImpulseCommandCompleteExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as Set
 }
 void setDebugImpulseErrorSetInfoExcludeList(excludeList) {
-  state.debugImpulseErrorSetInfoExcludeList = excludeList?.replaceAll("\\s","")?.split(",")?.toSet()
+  state.debugImpulseErrorSetInfoExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as Set
 }
 
 def installed() {
@@ -243,6 +243,10 @@ void refreshInternal(final String zid, boolean quiet) {
   }
 }
 
+void refreshInternalDelay(Map data) {
+  refreshInternal(data.zid, data.getOrDefault('quiet', false))
+}
+
 // For compatibility with old installs
 void watchDogChecking() {
   logInfo "Old watchdog function called. Setting up new watchdog."
@@ -369,7 +373,8 @@ void webSocketStatus(final String status) {
       sendEvent(name: "websocket", value: "connected")
     }
 
-    refreshInternal(null, true)
+    // Refresh after a second delay. This gives the 'websocket' attribute time to be update
+    runIn(1, refreshInternalDelay, [data: [zid: null, quiet: true]])
 
     // Schedule silent connect for ~4 hours from now. Should happen just before Ring automatically disconnects us
     runIn(60 * 60 * 4 - new Random().nextInt(60), silentWebsocketReconnect)
