@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Motion Sensor Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,27 +12,27 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *
- *
- *  Change Log:
- *  2019-04-26: Initial
- *  2019-11-15: Import URL
- *  2020-02-12: Fixed battery % to show correctly in dashboards
- *  2020-02-29: Added checkin event
- *              Changed namespace
- *  2021-08-16: Reduce repetition in some of the code
  */
 
+import groovy.transform.Field
+
 metadata {
-  definition(name: "Ring Virtual Motion Sensor", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-motion-sensor.groovy") {
+  definition(name: "Ring Virtual Motion Sensor", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
+    capability "Battery"
+    capability "Motion Sensor"
     capability "Refresh"
     capability "Sensor"
-    capability "Motion Sensor"
-    capability "Battery"
     capability "TamperAlert"
 
-    attribute "lastCheckin", "string"
+    attribute "bypassed", "enum", ["true", "false"]
+    attribute "chirp", "string"
+    attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
+    attribute "firmware", "string"
+    attribute "sensitivity", "enum", ["low", "medium", "high"]
+
+    command "setChirp", [[name: "Set Chirp", type: "ENUM", description: "Choose the sound your Base Station and Keypads will make when this contact sensor is triggered",
+                          constraints: ['ding-dong', 'harp', 'navi', 'wind-chime', 'none']]]
+    command "setSensitivity", [[name: "mode", type: "ENUM", constraints: ["low", "medium", "high"], description: "Set motion sensor sensitivity. WARNING: This setting does not apply immediately. May take up to 12 hours to apply. To apply immediately, open the device cover, wait for LED to stop blinking, then close the cover."]]
   }
 
   preferences {
@@ -41,67 +42,108 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def refresh() {
-  logDebug "Attempting to refresh."
-  //parent.simpleRequest("refresh-device", [dni: device.deviceNetworkId])
+void setChirp(chirp) {
+  final Map data = [chirps: [(device.getDataValue("zid")): [type: chirp]]]
+  parent.apiWebsocketRequestSetDeviceSecurityPanel(device.getDataValue("src"), data)
 }
 
-def setValues(deviceInfo) {
-  logDebug "updateDevice(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+void setSensitivity(String sensitivity) {
+  Integer ringSensitivity = MOTION_SENSITIVITY.find { it.value == sensitivity }?.key
 
-  if (deviceInfo?.state?.faulted != null) {
-    checkChanged("motion", deviceInfo.state.faulted ? "active" : "inactive")
+  if (ringSensitivity == null) {
+    log.error "Could not map ${sensitivity} to value ring expects"
+    return
   }
+
+  parent.apiWebsocketRequestSetDevice(device.getDataValue("src"), device.getDataValue("zid"), [sensitivity: ringSensitivity])
+}
+
+void refresh() {
+  parent.refresh(device.getDataValue("src"))
+}
+
+void setValues(final Map deviceInfo) {
+  logDebug "setValues(${deviceInfo})"
+
+  if (deviceInfo.faulted != null) {
+    checkChanged("motion", deviceInfo.faulted ? "active" : "inactive")
+  }
+
+  if (deviceInfo.sensitivity != null) {
+    checkChanged("sensitivity", MOTION_SENSITIVITY[deviceInfo.sensitivity])
+  }
+
+  if (deviceInfo.pending != null) {
+    final Map deviceInfoPending = deviceInfo.pending
+
+    if (deviceInfoPending.sensitivity != null) {
+      logInfo "Device ${device.label} will set 'Sensitivity' to ${MOTION_SENSITIVITY[deviceInfoPending.sensitivity]} on ${getNextExpectedWakeupString(deviceInfo)}"
+    }
+
+    if (deviceInfoPending.commands) {
+      logDebug "Device ${device.label} will set the commands ${deviceInfoPending.commands} on ${getNextExpectedWakeupString(deviceInfo)}"
+    }
+  }
+
   if (deviceInfo.batteryLevel != null) {
     checkChanged("battery", deviceInfo.batteryLevel, "%")
   }
-  if (deviceInfo.tamperStatus) {
-    checkChanged("tamper", deviceInfo.tamperStatus == "tamper" ? "detected" : "clear")
+
+  // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
+  for (final entry in deviceInfo.subMap(["bypassed", "chirp", "commStatus", "firmware", "tamper"])) {
+    checkChanged(entry.key, entry.value)
   }
 
-  for(key in ['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength']) {
-    if (deviceInfo[key]) {
-      state[key] = deviceInfo[key]
-    }
-  }
-  
-  if (deviceInfo?.impulseType == "comm.heartbeat") {
-    sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
-  }
-  
-  for(key in ['firmware', 'hardwareVersion']) {
-    if (deviceInfo[key] && device.getDataValue(key) != deviceInfo[key]) {
-      device.updateDataValue(key, deviceInfo[key])
-    }
+  // Update state values
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength'])
+  if (stateValues) {
+      state << stateValues
   }
 }
 
-def checkChanged(attribute, newStatus, unit=null) {
-  if (device.currentValue(attribute) != newStatus) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('firmware') // Is an attribute now
+}
+
+// @return Next expected wakeup time as a string.
+// Gets value from deviceInfo first, falls back to state because nextExpectedWakeup isn't sent with every deviceInfo
+String getNextExpectedWakeupString(final Map deviceInfo) {
+  final Long nextExpectedWakeup = deviceInfo.nextExpectedWakeup ?: state.nextExpectedWakeup
+
+  return nextExpectedWakeup ? new Date(nextExpectedWakeup).toString() : 'unknown'
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
 }
 
-private convertToLocalTimeString(dt) {
-  def timeZoneId = location?.timeZone?.ID
-  if (timeZoneId) {
-    return dt.format("yyyy-MM-dd h:mm:ss a", TimeZone.getTimeZone(timeZoneId))
-  }
-  else {
-    return "$dt"
-  }
-}
+@Field final static Map MOTION_SENSITIVITY = [
+  0: 'high',
+  1: 'medium',
+  2: 'low',
+].asImmutable()

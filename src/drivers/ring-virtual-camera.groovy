@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Camera Device Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,27 +12,21 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *
- *
- *  Change Log:
- *  2019-11-10: Initial
- *  2019-11-13: Added battery level support
- *  2019-11-15: Import URL
- *  2019-11-18: Differentiated between ring and motion events
- *  2020-02-29: Changed namespace
- *  2020-05-19: Snapshot preference
  */
 
 metadata {
-  definition(name: "Ring Virtual Camera", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-camera.groovy") {
+  definition(name: "Ring Virtual Camera", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Actuator"
-    capability "Sensor"
-    capability "Refresh"
-    capability "Polling"
-    capability "MotionSensor"
     capability "Battery"
+    capability "MotionSensor"
+    capability "Polling"
     capability "PushableButton"
+    capability "Refresh"
+    capability "Sensor"
+
+    attribute "firmware", "string"
+    attribute "rssi", "number"
+    attribute "wifi", "string"
 
     command "getDings"
   }
@@ -44,20 +39,16 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
-}
-
-def configure() {
-
 }
 
 def updated() {
@@ -73,72 +64,81 @@ def poll() {
   refresh()
 }
 
+void push(buttonNumber) {
+  log.error "Not implemented! push(buttonNumber)"
+}
+
 def refresh() {
   logDebug "refresh()"
-  parent.simpleRequest("refresh", [dni: device.deviceNetworkId])
+  parent.apiRequestDeviceRefresh(device.deviceNetworkId)
+  parent.apiRequestDeviceHealth(device.deviceNetworkId, "doorbots")
 }
 
 def getDings() {
   logDebug "getDings()"
-  parent.simpleRequest("dings")
+  parent.apiRequestDings()
 }
 
-def childParse(type, params) {
-  logDebug "childParse(type, msg)"
-  logTrace "type ${type}"
-  logTrace "params ${params}"
-
-  if (type == "refresh") {
-    logTrace "refresh"
-    handleRefresh(params.msg)
-  }
-  else if (type == "dings") {
-    logTrace "dings"
-    handleDings(params.type, params.msg)
-  }
-  else {
-    log.error "Unhandled type ${type}"
-  }
+void handleDing(final Map msg) {
+  logInfo "${device.label} button 1 was pushed"
+  sendEvent(name: "pushed", value: 1, isStateChange: true)
 }
 
-private handleRefresh(json) {
-  logDebug "handleRefresh(${json.description})"
-
-  if (json.battery_life != null && !["jbox_v1", "lpd_v1", "lpd_v2"].contains(device.getDataValue("kind"))) {
-    checkChanged("battery", json.battery_life)
-  }
-  if (json.firmware_version && device.getDataValue("firmware") != json.firmware_version) {
-    device.updateDataValue("firmware", json.firmware_version)
-  }
-}
-
-private handleDings(type, json) {
-  logTrace "json: ${json}"
-  if (json == null) {
-    checkChanged("motion", "inactive")
-  }
-  else if (json.kind == "motion" && json.motion == true) {
-    checkChanged("motion", "active")
-    unschedule(motionOff)
-    if (type == "IFTTT") {
-      def motionTimeout = 60
-      runIn(motionTimeout, motionOff)
+void handleHealth(final Map msg) {
+  if (msg.device_health) {
+    if (msg.device_health.wifi_name) {
+      checkChanged("wifi", msg.device_health.wifi_name)
     }
   }
-  else if (json.kind == "ding") {
-    logInfo "${device.label} button 1 was pushed"
-    sendEvent(name: "pushed", value: 1, isStateChange: true)
+}
+
+void handleMotion(final Map msg) {
+  if (msg.motion == true) {
+    checkChanged("motion", "active")
+
+    runIn(60, motionOff) // We don't get motion off msgs from ifttt, and other motion only happens on a manual refresh
+  }
+  else if(msg.motion == false) {
+    checkChanged("motion", "inactive")
+    unschedule(motionOff)
+  }
+  else {
+    log.error ("handleMotion unsupported msg: ${msg}")
   }
 }
 
-def motionOff(data) {
-  logDebug "motionOff($data)"
-  childParse("dings", [msg: null])
+void handleRefresh(final Map msg) {
+  if (msg.battery_life != null && !["jbox_v1", "lpd_v1", "lpd_v2"].contains(device.getDataValue("kind"))) {
+    checkChanged("battery", msg.battery_life, '%')
+  }
+
+  if (msg.health) {
+    Map health = msg.health
+
+    if (health.firmware_version) {
+      checkChanged("firmware", health.firmware_version)
+    }
+
+    if (health.rssi) {
+      checkChanged("rssi", health.rssi)
+    }
+  }
 }
 
-def checkChanged(attribute, newStatus, unit=null) {
-  if (device.currentValue(attribute) != newStatus) {
+void motionOff() {
+  checkChanged("motion", "inactive")
+}
+
+void runCleanup() {
+  device.removeDataValue("firmware") // Is an attribute now
+  device.removeDataValue("device_id")
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
 }

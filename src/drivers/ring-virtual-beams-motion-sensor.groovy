@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Beams Motion Sensor Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,28 +12,24 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *
- *
- *  Change Log:
- *  2019-04-26: Initial
- *  2019-11-15: Import URL
- *  2019-11-24: Fix for motion events not working... the entire point of this device.
- *  2020-02-12: Fixed battery % to show correctly in dashboards
- *  2020-02-29: Added checkin event
- *              Changed namespace
- *  2021-08-16: Reduce repetition in some of the code
  */
 
+import groovy.transform.Field
+
 metadata {
-  definition(name: "Ring Virtual Beams Motion Sensor", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-beams-motion-sensor.groovy") {
+  definition(name: "Ring Virtual Beams Motion Sensor", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
+    capability "Battery"
+    capability "Motion Sensor"
     capability "Refresh"
     capability "Sensor"
-    capability "Motion Sensor"
-    capability "Battery"
-    capability "TamperAlert"
 
-    attribute "lastCheckin", "string"
+    attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
+    attribute "firmware", "string"
+    attribute "rfChannel", "number"
+    attribute "rssi", "number"
+    attribute "sensitivity", "enum", ["low", "medium", "high", "custom2", "custom4"]
+
+    command "setSensitivity", [[name: "mode", type: "ENUM", constraints: ["low", "medium", "high", "custom2", "custom4"], description: "Set motion sensor sensitivity"]]
   }
 
   preferences {
@@ -42,67 +39,84 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
 def refresh() {
-  logDebug "Attempting to refresh."
-  //parent.simpleRequest("refresh-device", [dni: device.deviceNetworkId])
+  parent.refresh(device.getDataValue("src"))
 }
 
-def setValues(deviceInfo) {
-  logDebug "updateDevice(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+void setSensitivity(String sensitivity) {
+  Integer ringSensitivity = MOTION_SENSITIVITY.find { it.value == sensitivity }?.key
 
-  if (deviceInfo?.state?.motionStatus != null) {
-    checkChanged("motion", deviceInfo.state.motionStatus == "clear" ? "inactive" : "active")
+  if (ringSensitivity == null) {
+    log.error "Could not map ${sensitivity} to value ring expects"
+    return
   }
+
+  parent.apiWebsocketRequestSetDevice(device.getDataValue("src"), device.getDataValue("zid"), [sensitivity: ringSensitivity])
+}
+
+void setValues(final Map deviceInfo) {
+  logDebug "setValues(${deviceInfo})"
+
   if (deviceInfo.batteryLevel != null) {
     checkChanged("battery", deviceInfo.batteryLevel, "%")
   }
-  if (deviceInfo.tamperStatus) {
-    checkChanged("tamper", deviceInfo.tamperStatus == "tamper" ? "detected" : "clear")
+
+  if (deviceInfo.sensitivity != null) {
+    checkChanged("sensitivity", MOTION_SENSITIVITY[deviceInfo.sensitivity])
   }
-  if (deviceInfo.lastUpdate != state.lastUpdate) {
-    sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
+
+  // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
+  for (final entry in deviceInfo.subMap(["commStatus", "firmware", "motion", "rfChannel", "rssi"])) {
+    checkChanged(entry.key, entry.value)
   }
-  
-  for(key in ['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength']) {
-    if (deviceInfo[key]) {
-      state[key] = deviceInfo[key]
-    }
-  }
-  
-  if (deviceInfo.firmware && device.getDataValue("firmware") != deviceInfo.firmware) {
-    device.updateDataValue("firmware", deviceInfo.firmware)
-  }
-  if (deviceInfo.hardwareVersion && deviceInfo.hardwareVersion != "null" && device.getDataValue("hardwareVersion") != deviceInfo.hardwareVersion) {
-    device.updateDataValue("hardwareVersion", deviceInfo.hardwareVersion)
+
+  // Update state values
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastUpdate'])
+  if (stateValues) {
+      state << stateValues
   }
 }
 
-def checkChanged(attribute, newStatus, unit=null) {
-  if (device.currentValue(attribute) != newStatus) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('firmware') // Is an attribute now
+  state.remove('lastCommTime')
+  state.remove('signalStrength')
+  state.remove('nextExpectedWakeup')
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
 }
 
-private convertToLocalTimeString(dt) {
-  def timeZoneId = location?.timeZone?.ID
-  if (timeZoneId) {
-    return dt.format("yyyy-MM-dd h:mm:ss a", TimeZone.getTimeZone(timeZoneId))
-  }
-  else {
-    return "$dt"
-  }
-}
+@Field final static Map<Integer, String> MOTION_SENSITIVITY = [
+  0: 'high', // Custom 5
+  63: 'custom4',
+  127: 'medium', // Custom 3
+  191: 'custom2',
+  255: 'low', // Custom 1
+]
