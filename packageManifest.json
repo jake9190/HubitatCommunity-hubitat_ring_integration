@@ -1,11 +1,11 @@
 {
   "packageName": "Hubitat Ring Integration (Unofficial)",
   "author": "codahq",
-  "version": "0.4.1",
-  "betaVersion": "0.5.0.16",
+  "version": "0.5.0",
+  "betaVersion": "0.5.0",
   "minimumHEVersion": "0.0",
-  "dateReleased": "2022-01-20",
-  "releaseNotes": "Add support for Ring Video Doorbell 4 (Oyster) and Ring Video Doorbell Wired (Graham Cracker)",
+  "dateReleased": "2022-05-31",
+  "releaseNotes": "Updates to improve performance (~50% reduction in api device times)\nReduce websocket disconnect/connect logging\nUpdated to new Ring websocket api\nAdd support for glass break sensor\nSupport get/set chirps/powerSave on virtual keypad\nSupport get/set chirp on contact/motion sensors\nSupport get/set sensitivity on motion sensors\nSupport pending commands/settings\nSupport 'ethernet' network type in alarm hub\nAdd error message when making a request while websocket is disconnected\nAdd extra debugging tools to ring-virtual-api-driver\nPrint an error message when Ring hub has connectivity issue\nImprove log message when driver isn't found\nHandle SystemStatusType, RemovedDeviceType, AddDocType, and a DeviceInfoDocGetList variant\nRemove unused configure() functions\nRemove 'cellular' network support from beams bridge. It only supports wifi\nChange 'firmware' from a data value to an attribute in all zwave alarm devices\nFix getting firmware version and added rssi support to camera/light devices\nMajor refactoring of how Ring requests are made\nWhen possible, limit parsing to only changed values\nUse 'asImmutable' to prevent final statics from changing in Hubitat >= 2.3.1\nSwitch from enabling/disabling hubs with 'kind' to 'doorbotId'. This prevents a new hub with the same 'kind' from being created until the user selects it.",
   "apps": [
     {
       "id": "981fa0e5-b7c7-4459-a9ba-7ccdc51faa55",
@@ -212,7 +212,7 @@
     },
     {
       "id": "d010d9fa-653d-4c48-aa0e-dad26d65d7ee",
-      "name": "Ring Virtual Panic BUtton",
+      "name": "Ring Virtual Panic Button",
       "namespace": "ring-hubitat-codahq",
       "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.4.1/src/drivers/ring-virtual-panic-button.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-panic-button.groovy",
