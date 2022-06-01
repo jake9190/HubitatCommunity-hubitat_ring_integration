@@ -610,14 +610,14 @@ void configureDingPolling() {
   unschedule(getDings)
   if (dingPolling) {
     setupDingables()
-    runIn(dingInterval, getDings)
+    runIn(dingInterval ?: 15, getDings)
   }
 }
 
 void getDings() {
   apiRequestDings()
   if (dingPolling) {
-    runIn(dingInterval, getDings)
+    runIn(dingInterval ?: 15, getDings)
   }
 }
 

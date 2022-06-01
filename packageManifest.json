@@ -1,17 +1,17 @@
 {
   "packageName": "Hubitat Ring Integration (Unofficial)",
   "author": "codahq",
-  "version": "0.5.1",
-  "betaVersion": "0.5.1",
+  "version": "0.5.2",
+  "betaVersion": "0.5.2",
   "minimumHEVersion": "0.0",
-  "dateReleased": "2022-05-31",
-  "releaseNotes": "Updates to improve performance (~50% reduction in api device times)\nReduce websocket disconnect/connect logging\nUpdated to new Ring websocket api\nAdd support for glass break sensor\nSupport get/set chirps/powerSave on virtual keypad\nSupport get/set chirp on contact/motion sensors\nSupport get/set sensitivity on motion sensors\nSupport pending commands/settings\nSupport 'ethernet' network type in alarm hub\nAdd error message when making a request while websocket is disconnected\nAdd extra debugging tools to ring-virtual-api-driver\nPrint an error message when Ring hub has connectivity issue\nImprove log message when driver isn't found\nHandle SystemStatusType, RemovedDeviceType, AddDocType, and a DeviceInfoDocGetList variant\nRemove unused configure() functions\nRemove 'cellular' network support from beams bridge. It only supports wifi\nChange 'firmware' from a data value to an attribute in all zwave alarm devices\nFix getting firmware version and added rssi support to camera/light devices\nMajor refactoring of how Ring requests are made\nWhen possible, limit parsing to only changed values\nUse 'asImmutable' to prevent final statics from changing in Hubitat >= 2.3.1\nSwitch from enabling/disabling hubs with 'kind' to 'doorbotId'. This prevents a new hub with the same 'kind' from being created until the user selects it.",
+  "dateReleased": "2022-06-01",
+  "releaseNotes": "Fix error on 'configure polling for motion and ring alerts' page when dingInterval hasn't been defined yet",
   "apps": [
     {
       "id": "981fa0e5-b7c7-4459-a9ba-7ccdc51faa55",
       "name": "Unofficial Ring Connect",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/apps/unofficial-ring-connect.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/apps/unofficial-ring-connect.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/apps/unofficial-ring-connect.groovy",
       "required": true,
       "oauth": true
@@ -22,7 +22,7 @@
       "id": "8f216a41-8eed-4246-8c83-f45e45d36967",
       "name": "Ring API Virtual Device",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-api-virtual-device.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-api-virtual-device.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-api-virtual-device.groovy",
       "required": true
     },
@@ -30,7 +30,7 @@
       "id": "5bcdd988-ccec-4f4b-9fc1-90d820fda1af",
       "name": "Ring Virtual Alarm Hub",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-alarm-hub.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-alarm-hub.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-alarm-hub.groovy",
       "required": false
     },
@@ -38,7 +38,7 @@
       "id": "70efa457-42eb-46ac-99f7-095a5e313149",
       "name": "Ring Virtual Alarm Range Extender",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-alarm-range-extender.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-alarm-range-extender.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-alarm-range-extender.groovy",
       "required": false
     },
@@ -46,7 +46,7 @@
       "id": "aead008c-f3f5-4ffd-b936-a5803213768f",
       "name": "Ring Virtual Alarm Smoke & CO Listener",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-alarm-smoke-co-listener.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-alarm-smoke-co-listener.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-alarm-smoke-co-listener.groovy",
       "required": false
     },
@@ -54,7 +54,7 @@
       "id": "d8892a22-34a9-47d8-893d-a69bb24c756d",
       "name": "Ring Virtual Beams Bridge",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-beams-bridge.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-beams-bridge.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-beams-bridge.groovy",
       "required": false
     },
@@ -62,7 +62,7 @@
       "id": "79d7248b-7db9-4b05-8f67-6c53e22662ee",
       "name": "Ring Virtual Beams Group",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-beams-group.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-beams-group.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-beams-group.groovy",
       "required": false
     },
@@ -70,7 +70,7 @@
       "id": "e27d6c9b-7442-4828-9d24-ca019939f524",
       "name": "Ring Virtual Beams Light",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-beams-light.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-beams-light.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-beams-light.groovy",
       "required": false
     },
@@ -78,7 +78,7 @@
       "id": "02be7aac-42b4-4ae8-b08e-89148dea5565",
       "name": "Ring Virtual Beams Motion Sensor",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-beams-motion-sensor.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-beams-motion-sensor.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-beams-motion-sensor.groovy",
       "required": false
     },
@@ -86,7 +86,7 @@
       "id": "69752fc9-099d-4cb9-a7ae-af50a4e9f238",
       "name": "Ring Virtual Camera",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-camera.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-camera.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-camera.groovy",
       "required": false
     },
@@ -94,7 +94,7 @@
       "id": "0971b13a-e3e3-43e6-b02f-b5d384db5a46",
       "name": "Ring Virtual Camera with Siren",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-camera-with-siren.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-camera-with-siren.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-camera-with-siren.groovy",
       "required": false
     },
@@ -102,7 +102,7 @@
       "id": "2bbff10b-0231-47d3-bb80-25d86d1a2317",
       "name": "Ring Virtual Chime",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-chime.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-chime.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-chime.groovy",
       "required": false
     },
@@ -110,7 +110,7 @@
       "id": "bca84b7f-a3ee-4464-bee7-47313fdc06de",
       "name": "Ring Virtual CO Alarm",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-co-alarm.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-co-alarm.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-co-alarm.groovy",
       "required": false
     },
@@ -118,7 +118,7 @@
       "id": "a64d3760-5873-4f65-8dc8-a67d23fc835c",
       "name": "Ring Virtual Contact Sensor",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-contact-sensor.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-contact-sensor.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-contact-sensor.groovy",
       "required": false
     },
@@ -126,7 +126,7 @@
       "id": "32b9f95d-1d97-4ae9-a59c-69bbb5d806a2",
       "name": "Ring Virtual Alarm Flood & Freeze Sensor",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-flood-freeze-sensor.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-flood-freeze-sensor.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-flood-freeze-sensor.groovy",
       "required": false
     },
@@ -134,7 +134,7 @@
       "id": "fbbc678d-19a1-47d0-bb2d-2cd5c428c950",
       "name": "Ring Virtual Glass Break Sensor",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-glass-break-sensor.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-glass-break-sensor.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-glass-break-sensor.groovy",
       "required": false
     },
@@ -142,7 +142,7 @@
       "id": "9d755c96-7282-4650-9eb0-a18fb918af2a",
       "name": "Ring Virtual Keypad",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-keypad.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-keypad.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-keypad.groovy",
       "required": false
     },
@@ -150,7 +150,7 @@
       "id": "0535ca0b-f816-411d-ace1-0febf3da27b6",
       "name": "Ring Virtual Light",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-light.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-light.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-light.groovy",
       "required": false
     },
@@ -158,7 +158,7 @@
       "id": "daea57e4-1600-404b-b58c-223ea870760b",
       "name": "Ring Virtual Light with Siren",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-light-with-siren.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-light-with-siren.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-light-with-siren.groovy",
       "required": false
     },
@@ -166,7 +166,7 @@
       "id": "9e38ce3c-a7ea-4db0-b82b-bf9d1772248d",
       "name": "Ring Virtual Lock",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-lock.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-lock.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-lock.groovy",
       "required": false
     },
@@ -174,7 +174,7 @@
       "id": "0d140155-f66a-49b1-86f4-695877a744d6",
       "name": "Ring Virtual Motion Sensor",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-motion-sensor.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-motion-sensor.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-motion-sensor.groovy",
       "required": false
     },
@@ -182,7 +182,7 @@
       "id": "bdb8b6e7-de9c-45e9-a286-6493fcebe4e5",
       "name": "Ring Virtual Retrofit Alarm Kit",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-retrofit-alarm-kit.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-retrofit-alarm-kit.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-retrofit-alarm-kit.groovy",
       "required": false
     },
@@ -190,7 +190,7 @@
       "id": "f65782ac-e70b-42dc-b6b6-90f75fd903ae",
       "name": "Ring Virtual Siren",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-siren.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-siren.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-siren.groovy",
       "required": false
     },
@@ -198,7 +198,7 @@
       "id": "a023f88d-63df-46f4-8c3c-6aee94b7dce2",
       "name": "Ring Virtual Smoke Alarm",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-smoke-alarm.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-smoke-alarm.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-smoke-alarm.groovy",
       "required": false
     },
@@ -206,7 +206,7 @@
       "id": "b7fa1b23-96d9-4407-8896-3b4af7372fc4",
       "name": "Ring Virtual Switch",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-switch.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-switch.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-switch.groovy",
       "required": false
     },
@@ -214,10 +214,10 @@
       "id": "d010d9fa-653d-4c48-aa0e-dad26d65d7ee",
       "name": "Ring Virtual Panic Button",
       "namespace": "ring-hubitat-codahq",
-      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.1/src/drivers/ring-virtual-panic-button.groovy",
+      "location": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/v0.5.2/src/drivers/ring-virtual-panic-button.groovy",
       "betaLocation": "https://raw.githubusercontent.com/HubitatCommunity/hubitat_ring_integration/develop/src/drivers/ring-virtual-panic-button.groovy",
       "required": false
     }
   ],
-  "documentationLink": "https://github.com/HubitatCommunity/hubitat_ring_integration/blob/v0.5.1/README.md"
+  "documentationLink": "https://github.com/HubitatCommunity/hubitat_ring_integration/blob/v0.5.2/README.md"
 }
