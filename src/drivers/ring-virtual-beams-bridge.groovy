@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Beams Bridge Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,30 +12,19 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *
- *
- *  Change Log:
- *  2019-04-26: Initial
- *  2019-11-15: Import URL
- *  2020-02-29: Added checkin event
- *              Changed namespace
- *  2021-08-16: Remove unnecessary safe object traversal
- *              Reduce repetition in some of the code
  */
 
-import groovy.json.JsonOutput
-
 metadata {
-  definition(name: "Ring Virtual Beams Bridge", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-beams-bridge.groovy") {
+  definition(name: "Ring Virtual Beams Bridge", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Refresh"
     capability "Sensor"
 
-    attribute "cellular", "string"
-    attribute "lastCheckin", "string"
+    attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
+    attribute "connectionStatus", "enum", ["asset-cell-backup", "backing-up", "connected", "connecting", "extended-cell-backup",
+                                           "restoring", "updating"]
+    attribute "firmware", "string"
+    attribute "networkConnection", "enum", ["unknown", "wifi"]
     attribute "wifi", "string"
-
-    command "createDevices"
   }
 
   preferences {
@@ -44,113 +34,107 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def createDevices() {
-  logDebug "Attempting to create devices."
-  parent.createDevices(device.getDataValue("zid"))
-}
-
 def refresh() {
-  logDebug "Attempting to refresh."
-  parent.refresh(device.getDataValue("zid"))
+  parent.refresh(device.getDataValue("src"))
 }
 
-def setValues(deviceInfo) {
-  logDebug "updateDevice(deviceInfo)"
-  logTrace "deviceInfo: ${JsonOutput.prettyPrint(JsonOutput.toJson(deviceInfo))}"
+void setValues(final Map deviceInfo) {
+  logDebug "setValues(${deviceInfo})"
 
-  for(key in ['impulseType', 'lastCommTime', 'lastUpdate']) {
-    if (deviceInfo[key]) {
-      state[key] = deviceInfo[key]
+  if (deviceInfo.containsKey('lastConnectivityCheckError')) {
+    if (deviceInfo.lastConnectivityCheckError) {
+      log.error "Ring connectivity error: ${deviceInfo.lastConnectivityCheckError}"
+    } else {
+      log.info "Ring connectivity error resolved."
     }
   }
 
-  if (deviceInfo.deviceType == "halo-stats.latency" && deviceInfo.state?.status == "success") {
-    sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
-  }
-  if (deviceInfo.state?.networks) {
-    def nw = deviceInfo.state.networks
+  if (deviceInfo.networks != null) {
+    final Map networks = deviceInfo.networks
 
-    if (nw.ppp0 != null) {
-      if (nw.ppp0?.type) {
-        device.updateDataValue("ppp0Type", nw.ppp0.type.capitalize())
-      }
-      if (nw.ppp0?.name) {
-        device.updateDataValue("ppp0Name", nw.ppp0.name)
-      }
-      if (nw.ppp0?.rssi) {
-        device.updateDataValue("ppp0Rssi", nw.ppp0.rssi.toString())
-      }
+    if (deviceInfo.containsKey('networkConnection')) {
+      final networkConnection = deviceInfo.networkConnection
 
-      def type = device.getDataValue("ppp0Type")
-      def name = device.getDataValue("ppp0Name")
-      def rssi = device.getDataValue("ppp0Rssi")
-
-      logInfo "ppp0 ${type} ${name} RSSI ${RSSI}"
-      checkChanged('cellular', "${name} RSSI ${rssi}")
-      state.ppp0 = "${name} RSSI ${rssi}"
+      checkChanged("networkConnection", networks.getOrDefault(networkConnection, [type: "unknown"]).type)
     }
 
-    if (nw.wlan0 != null) {
-      if (nw.wlan0?.type) {
-        device.updateDataValue("wlan0Type", nw.wlan0.type.capitalize())
-      }
-      if (nw.wlan0?.ssid) {
-        device.updateDataValue("wlan0Ssid", nw.wlan0.ssid)
-      }
-      if (nw.wlan0?.rssi) {
-        device.updateDataValue("wlan0Rssi", nw.wlan0.rssi.toString())
-      }
+    // Beams bridge appears to only support wifi
+    for (final String networkKey in ['wlan0']) {
+      final Map network = networks[networkKey]
+      if (network != null) {
+        String networkType = network.type
 
-      def type = device.getDataValue("wlan0Type")
-      def ssid = device.getDataValue("wlan0Ssid")
-      def rssi = device.getDataValue("wlan0Rssi")
+        // Sometimes the type isn't included. Just skip updating things for now
+        if (!networkType) {
+          logDebug "Could not get network.type for ${networkKey}: ${networks}"
+          continue
+        }
 
-      logInfo "wlan0 ${type} ${ssid} RSSI ${RSSI}"
-      checkChanged('wifi', "${ssid} RSSI ${rssi}")
-      state.wlan0 = "${ssid} RSSI ${rssi}"
-    }
-  }
-  if (deviceInfo.deviceType == "adapter.ringnet" && deviceInfo.state?.version) {
-    def version = deviceInfo.state.version
-      
-    for(key in ['buildNumber', 'nordicFirmwareVersion', 'softwareVersion']) {
-      if (version[key] && device.getDataValue(key) != version[key]) {
-        device.updateDataValue(key, version[key])
+        String networkName = network.ssid ?: device.getDataValue(networkKey + "Ssid")
+        String networkRssi = network.rssi ?: device.getDataValue(networkKey + "Rssi")
+
+        checkChangedDataValue(networkKey + "Type", networkType)
+        checkChangedDataValue(networkKey + "Ssid", networkName)
+        checkChangedDataValue(networkKey + "Rssi", networkRssi)
+
+        final String fullNetworkStr = networkName + " RSSI " + networkRssi
+        logInfo "${networkKey} ${networkType} ${fullNetworkStr}"
+        checkChanged(networkType, fullNetworkStr)
+        state[networkKey] = fullNetworkStr
       }
     }
   }
-  else if (deviceInfo.state?.version) {
-    if (device.getDataValue("version") != deviceInfo.state?.version) {
-      device.updateDataValue("version", deviceInfo.state?.version.toString())
-    }
+
+  // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
+  for (final entry in deviceInfo.subMap(["commStatus", "connectionStatus", "firmware"])) {
+    checkChanged(entry.key, entry.value)
+  }
+
+  // Update state values
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastUpdate'])
+  if (stateValues) {
+      state << stateValues
   }
 }
 
-def checkChanged(attribute, newStatus, unit=null) {
-  if (device.currentValue(attribute) != newStatus) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('nordicFirmwareVersion') // Is an attribute now
+  device.removeDataValue('softwareVersion') // Is an attribute now
+  device.removeDataValue('version') // Is an attribute now
+  state.remove('lastCommTime')
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
 }
 
-private convertToLocalTimeString(dt) {
-  def timeZoneId = location?.timeZone?.ID
-  if (timeZoneId) {
-    return dt.format("yyyy-MM-dd h:mm:ss a", TimeZone.getTimeZone(timeZoneId))
-  }
-  else {
-    return "$dt"
+void checkChangedDataValue(final String name, final value) {
+  if (device.getDataValue(name) != value) {
+    device.updateDataValue(name, value)
   }
 }
