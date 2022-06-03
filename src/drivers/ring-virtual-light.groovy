@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Light Device Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,54 +12,29 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *
- *
- *  Change Log:
- *  2019-03-02: Initial
- *  2019-11-15: Import URL
- *  2019-12-20: Fixed flash
- *              Fixed polling for light status
- *  2019-12-23: Added battery support
- *  2020-02-11: Added second battery support
- *  2020-02-29: Changed namespace
- *  2020-05-19: Snapshot preference
- *  2022-01-29: Connection state
  */
 
-import groovy.transform.Field
-
 metadata {
-  definition(name: "Ring Virtual Light", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-light.groovy") {
+  definition(name: "Ring Virtual Light", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Actuator"
-    capability "Switch"
-    capability "Sensor"
-    capability "Refresh"
-    capability "Polling"
-    capability "MotionSensor"
     capability "Battery"
+    capability "MotionSensor"
+    capability "Polling"
+    capability "Sensor"
+    capability "Switch"
+    capability "Refresh"
 
+    attribute "firmware", "string"
     attribute "battery2", "number"
-    attribute "lastActivity", "string"      
+    attribute "rssi", "number"
+    attribute "wifi", "string"
     attribute "connection", "string"
+
 
     command "flash"
     command "getDings"
   }
 
-  // simulator metadata
-  simulator {
-  }
-
-  // UI tile definitions
-  tiles {
-    standardTile("button", "device.switch", width: 2, height: 2, canChangeIcon: true) {
-      state "off", label: 'Off', action: "switch.on", icon: "st.switches.switch.off", backgroundColor: "#ffffff", nextState: "on"
-      state "on", label: 'On', action: "switch.off", icon: "st.switches.switch.on", backgroundColor: "#00A0DC", nextState: "off"
-    }
-    main "button"
-    details "button"
-  }
   preferences {
     input name: "deviceStatusPollingEnable", type: "bool", title: "Enable polling for device status", defaultValue: true
     input name: "lightPolling", type: "bool", title: "Enable polling for light status on this device", defaultValue: false
@@ -74,31 +50,16 @@ metadata {
     input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
   }
 }
-
-@Field static def LAST_ACTIVITY_THRESHOLD = 60 //minutes
-
-def canPollLight() {
-  return pollLight
-}
-
-def canPollDings() {
-  return pollDings
-}
-
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
-}
-
-def configure() {
-
 }
 
 def parse(String description) {
@@ -111,13 +72,28 @@ def poll() {
 
 def refresh() {
   logDebug "refresh()"
-  parent.simpleRequest("refresh", [dni: device.deviceNetworkId])
+  parent.apiRequestDeviceRefresh(device.deviceNetworkId)
+  parent.apiRequestDeviceHealth(device.deviceNetworkId, "doorbots")
   scheduleDevicePolling()
+}
+
+def pollDeviceStatus() {
+  logTrace "pollDeviceStatus()"
+  refresh()
+}
+
+def scheduleDevicePolling() {
+  unschedule(pollDeviceStatus)
+  if (deviceStatusPollingEnable) {
+        def Second = (new Date().format("s") as int)
+        Second = ((Second + 5) % 60)
+        schedule( "${ Second } 0/30 * ? * *", "refresh" )
+  }
 }
 
 def getDings() {
   logDebug "getDings()"
-  parent.simpleRequest("dings")
+  parent.apiRequestDings()
 }
 
 def setupPolling() {
@@ -160,8 +136,8 @@ def scheduleDevicePolling() {
 }
 
 def on() {
-  logDebug "Attempting to switch on."
-  parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "floodlight_light_on"])
+  state.strobing = false
+  parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "floodlight_light_on")
 }
 
 def off() {
@@ -169,71 +145,74 @@ def off() {
     unschedule()
   }
   state.strobing = false
-  logDebug "Attempting to switch off."
-  parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "floodlight_light_off"])
+  parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "floodlight_light_off")
 }
 
-
 def flash() {
-  logInfo "${device.getDisplayName()} was set to flash with a rate of ${strobeRate} milliseconds for ${strobeTimeout.toInteger()} seconds"
+  logInfo "$device was set to flash with a rate of $strobeRate milliseconds for $strobeTimeout seconds"
   state.strobing = true
   strobeOn()
   runIn(strobeTimeout.toInteger(), off)
 }
 
 def strobeOn() {
-  if (!state.strobing) return
-  runInMillis(strobeRate.toInteger(), strobeOff)
-  parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "floodlight_light_on"])
+  if (state.strobing) {
+    runInMillis(strobeRate.toInteger(), strobeOff)
+    parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "floodlight_light_on")
+  }
 }
 
 def strobeOff() {
-  if (!state.strobing) return
-  runInMillis(strobeRate.toInteger(), strobeOn)
-  parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "floodlight_light_off"])
+  if (state.strobing) {
+    runInMillis(strobeRate.toInteger(), strobeOn)
+    parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "floodlight_light_off")
+  }
 }
 
-def childParse(type, params) {
-  logDebug "childParse(type, msg)"
-  logTrace "type ${type}"
-  logTrace "params ${params}"
-
-  if (canReportLastActivity()) {
-    sendEvent(name: "lastActivity", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
+void handleDeviceSet(final String action, final Map msg, final Map query) {
+  if (action == "floodlight_light_on") {
+    checkChanged("switch", "on")
   }
-  if (type == "refresh") {
-    logTrace "refresh"
-    handleRefresh(params.msg)
-  }
-  else if (type == "device-set") {
-    logTrace "set"
-    handleSet(type, params)
-  }
-  else if (type == "dings") {
-    logTrace "dings"
-    handleDings(params.type, params.msg)
+  else if (action == "floodlight_light_off") {
+    checkChanged("switch", "off")
   }
   else {
-    log.error "Unhandled type ${type}"
+    log.error "handleDeviceSet unsupported action ${action}, msg=${msg}, query=${query}"
   }
 }
 
-def canReportLastActivity() {
-  def now = new Date().getTime()
-  if (state.lastActivity == null || now > (state.lastActivity + (LAST_ACTIVITY_THRESHOLD * 60 * 1000))) {
-    state.lastActivity = now
-    return true
+void handleHealth(final Map msg) {
+  if (msg.device_health) {
+    if (msg.device_health.wifi_name) {
+      checkChanged("wifi", msg.device_health.wifi_name)
+    }
   }
-  return false
 }
 
-private handleRefresh(json) {
-  logTrace "handleRefresh(${json.description})"
+void handleMotion(final Map msg) {
+  if (msg.motion == true) {
+    checkChanged("motion", "active")
 
-  if (json.battery_life != null && !discardBatteryLevel) {
-    checkChanged("battery", json.battery_life, "%")
-    if (json.battery_life_2 != null) {
-      checkChanged("battery2", json.battery_life_2, "%")
+    runIn(60, motionOff) // We don't get motion off msgs from ifttt, and other motion only happens on a manual refresh
+  }
+  else if(msg.motion == false) {
+    checkChanged("motion", "inactive")
+    unschedule(motionOff)
+  }
+  else {
+    log.error ("handleMotion unsupported msg: ${msg}")
+  }
+}
+
+void handleRefresh(final Map msg) {
+  if (msg.alerts?.connection != null) {
+    checkChanged("connection", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
+  }
+
+  if (msg.battery_life != null && !discardBatteryLevel) {
+    checkChanged("battery", msg.battery_life, "%")
+    if (msg.battery_life_2 != null) {
+      checkChanged("battery2", msg.battery_life_2, "%")
     }
   }
    
@@ -241,74 +220,43 @@ private handleRefresh(json) {
     checkChanged("connection", json.alerts.connection) // devices seem to be considered offline after 20 minutes
   }
 
-  if (!json.led_status) {
-    log.warn "No status?"
-    return
+  if (msg.led_status) {
+    if (!(msg.led_status instanceof String) && msg.led_status.seconds_remaining != null) {
+      checkChanged("switch", msg.led_status.seconds_remaining > 0 ? "on" : "off")
+    }
+    else {
+      checkChanged("switch", msg.led_status)
+    }
   }
 
-  if (json.led_status && !(json.led_status instanceof java.lang.String) && json.led_status.seconds_remaining != null) {
-    checkChanged("switch", json.led_status.seconds_remaining > 0 ? "on" : "off")
-  }
-  else if (json.led_status) {
-    checkChanged("switch", json.led_status)
-  }
-  if (json.firmware_version && device.getDataValue("firmware") != json.firmware_version) {
-    device.updateDataValue("firmware", json.firmware_version)
+  if (msg.health) {
+    Map health = msg.health
+
+    if (health.firmware_version) {
+      checkChanged("firmware", health.firmware_version)
+    }
+
+    if (health.rssi) {
+      checkChanged("rssi", health.rssi)
+    }
   }
 }
 
-private handleSet(id, params) {
-  logTrace "handleSet(${id}, ${params})"
-  if (params.response != 200) {
-    log.warn "Not successful?"
-    return
-  }
-  if (params.action == "floodlight_light_on") {
-    logInfo "Device ${device.label} switch is on"
-    sendEvent(name: "switch", value: "on")
-  }
-  else if (params.action == "floodlight_light_off") {
-    logInfo "Device ${device.label} switch is off"
-    sendEvent(name: "switch", value: "off")
-  }
-  else {
-    log.error "Unsupported set ${params.action}"
-  }
+void motionOff() {
+  checkChanged("motion", "inactive")
 }
 
-private handleDings(type, json) {
-  logTrace "json: ${json}"
-  if (json == null) {
-    checkChanged("motion", "inactive")
-  }
-  else if (json.kind == "motion" && json.motion == true) {
-    checkChanged("motion", "active")
-    unschedule(motionOff)
-  }
-  if (type == "IFTTT") {
-    def motionTimeout = 60
-    runIn(motionTimeout, motionOff)
-  }
+void runCleanup() {
+  state.remove('lastActivity')
+  device.removeDataValue("firmware") // Is an attribute now
+  device.removeDataValue("device_id")
 }
 
-def motionOff(data) {
-  logDebug "motionOff($data)"
-  childParse("dings", [msg: null])
-}
-
-def checkChanged(attribute, newStatus, unit=null) {
-  if (device.currentValue(attribute) != newStatus) {
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
-}
-
-private convertToLocalTimeString(dt) {
-  def timeZoneId = location?.timeZone?.ID
-  if (timeZoneId) {
-    return dt.format("yyyy-MM-dd h:mm:ss a", TimeZone.getTimeZone(timeZoneId))
-  }
-  else {
-    return "$dt"
-  }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
 }

@@ -4,3 +4,10 @@
 /.idea/vcs.xml
 /.idea/workspace.xml
 /ring_hubitat_codahq.iml
+
+# Vim temp files
+*.swo
+*.swp
+
+src/apps/tmp/tmp-*.groovy
+src/drivers/tmp/tmp-*.groovy

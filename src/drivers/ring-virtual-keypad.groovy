@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Keypad Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,203 +12,207 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *
- *
- *  Change Log:
- *  2019-04-26: Initial
- *  2019-11-15: Import URL
- *  2020-01-11: Fixed motion sensing capabilities (I noticed there is a new impulse type of "keypad.motion" so the websocket
- *                now returns enough information to somewhat reliably do this.  It's like they can hear my thoughts.  As of
- *                this change the active message comes reliably but the inactive message does not.  For this reason I just
- *                schedule off the motion instead.  Maybe at some later date I can change it to turn off when a message is
- *                received.)
- *  2020-02-12: Fixed battery % to show correctly in dashboards
- *  2020-02-29: Added checkin event
- *              Changed namespace
- *  2021-08-16: Reduce repetition in some of the code
  */
 
-metadata {
-  definition(name: "Ring Virtual Keypad", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-keypad.groovy") {
-    capability "Sensor"
-    capability "Motion Sensor"
-    capability "Audio Volume"
-    capability "Battery"
+import groovy.transform.Field
 
-    attribute "mode", "string"
+metadata {
+  definition(name: "Ring Virtual Keypad", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
+    capability "AudioVolume"
+    capability "Battery"
+    capability "Motion Sensor"
+    capability "Refresh"
+    capability "Sensor"
+    capability "TamperAlert"
+
+    attribute "batteryStatus", "enum", ["charged", "charging", "failed", "full", "low", "malfunction", "none", "ok", "warn"]
     attribute "brightness", "number"
-    attribute "lastCheckin", "string"
+    attribute "chirps", "enum", ["disabled", "enabled"]
+    attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
+    attribute "firmware", "string"
+    attribute "powerSave", "enum", ["off", "on", "unknown"]
 
     command "setBrightness", [[name: "Set LED Brightness*", type: "NUMBER", range: "0..100", description: "Choose a value between 0 and 100"]]
+    command "setChirps", [[name: "mode", type: "ENUM", constraints: ["disabled", "enabled"]]]
+    command "setPowerSave", [[name: "mode", type: "ENUM", constraints: ["off", "on"]]]
   }
 
   preferences {
-    input name: "motionTimeout", type: "number", range: 5..600, title: "Time in seconds before motion resets to inactive", defaultValue: 15
+    input name: "motionTimeout", type: "number", range: '5..600', title: "Time in seconds before motion resets to inactive", defaultValue: 15
     input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: false
     input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
     input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
   }
 }
 
-private getVOLUME_INC() {
-  return 5 //somebody can make this a preference if they feel strongly about it
-}
-
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
 }
 
-def setVolume(vol) {
-  logDebug "Attempting to set volume."
-  vol = vol > 100 ? 100 : vol
-  vol = vol < 0 ? 0 : vol
-  if (vol == 0 && !isMuted()) {
-    state.prevVolume = device.currentValue("volume")
-    sendEvent(name: "mute", value: "muted")
-  }
-  else if (vol != 0 && isMuted()) {
-    sendEvent(name: "mute", value: "unmuted")
-  }
-  else {
-    logDebug "No mute/unmute needed..."
-  }
-  if (device.currentValue("volume") != vol) {
-    def data = ["volume": (vol == null ? 50 : vol).toDouble() / 100]
-    parent.simpleRequest("setdevice", [zid: device.getDataValue("zid"), dst: null, data: data])
+void setVolume(volumelevel) {
+  // Value must be in [0, 100]
+  volumelevel = Math.min(Math.max(volumelevel == null ? 50 : volumelevel.toInteger(), 0), 100)
+
+  Integer currentVolume = device.currentValue("volume")
+
+  if (currentVolume != volumelevel) {
+    logTrace "requesting volume change to ${volumelevel}"
+    parent.apiWebsocketRequestSetDevice(null, device.getDataValue("zid"), [volume: volumelevel.toDouble() / 100])
   }
   else {
     logInfo "Already at volume."
-    sendEvent(name: "volume", value: device.currentValue("volume"))
+    sendEvent(name: "volume", value: currentVolume)
   }
 }
 
-def volumeUp() {
-  logDebug "Attempting to raise volume."
-  def nextVol = device.currentValue("volume") + VOLUME_INC
+void volumeUp() {
+  Integer currentVolume = device.currentValue("volume")
+  Integer nextVol = currentVolume + VOLUME_INC
   if (nextVol <= 100) {
     setVolume(nextVol)
   }
   else {
     logInfo "Already max volume."
-    sendEvent(name: "volume", value: device.currentValue("volume"))
+    sendEvent(name: "volume", value: currentVolume)
   }
 }
 
-def volumeDown() {
-  logDebug "Attempting to lower volume."
-  def nextVol = device.currentValue("volume") - VOLUME_INC
+void volumeDown() {
+  Integer currentVolume = device.currentValue("volume")
+  Integer nextVol = currentVolume - VOLUME_INC
   if (nextVol >= 0) {
     setVolume(nextVol)
   }
   else {
     logInfo "Already min volume."
-    sendEvent(name: "volume", value: device.currentValue("volume"))
+    sendEvent(name: "volume", value: currentVolume)
   }
 }
 
-def mute() {
-  logDebug "Attempting to mute."
+void mute() {
   setVolume(0)
 }
 
-def unmute() {
-  logDebug "Attempting to unmute."
+void unmute() {
   setVolume(state.prevVolume)
 }
 
-private isMuted() {
-  return device.currentValue("mute") == "muted"
+void updateVolumeInternal(Integer volume) {
+  Integer prevVolume = device.currentValue("volume")
+
+  if (checkChanged("volume", volume)) {
+    state.prevVolume == prevVolume
+    if (volume == 0) {
+      checkChanged("mute", "muted")
+    } else {
+      checkChanged("mute", "unmuted")
+    }
+  }
 }
 
 def setBrightness(brightness) {
-  logDebug "Attempting to set brightness ${brightness}."
-  brightness = brightness > 100 ? 100 : brightness
-  brightness = brightness < 0 ? 0 : brightness
-  def data = ["brightness": (brightness == null ? 100 : brightness).toDouble() / 100]
-  parent.simpleRequest("setdevice", [zid: device.getDataValue("zid"), dst: null, data: data])
+  // Value must be in [0, 100]
+  brightness = Math.min(Math.max(brightness == null ? 100 : brightness.toInteger(), 0), 100)
+
+  parent.apiWebsocketRequestSetDevice(null, device.getDataValue("zid"), [brightness: brightness.toDouble() / 100])
 }
 
-def refresh() {
-  logDebug "Attempting to refresh."
-  parent.simpleRequest("refresh", [dst: device.deviceNetworkId])
+def setChirps(chirps) {
+  parent.apiWebsocketRequestSetDevice(null, device.getDataValue("zid"), [chirps: chirps])
 }
 
-def stopMotion() {
+def setPowerSave(powerSave) {
+  String ringValue
+
+  for (it in POWER_SAVE) {
+    if (it.value == powerSave) {
+      ringValue = it.key
+      break
+    }
+  }
+
+  if (ringValue == null) {
+    log.error "Could not map ${powerSave} to value ring expects"
+    return
+  }
+
+  parent.apiWebsocketRequestSetDevice(null, device.getDataValue("zid"), [powerSave: ringValue])
+}
+
+void refresh() {
+  parent.refresh(device.getDataValue("src"))
+}
+
+void stopMotion() {
   checkChanged("motion", "inactive")
 }
 
-def setValues(deviceInfo) {
-  logDebug "updateDevice(deviceInfo)"
-  logTrace "deviceInfo: ${deviceInfo}"
+void setValues(final Map deviceInfo) {
+  logDebug "setValues(${deviceInfo})"
 
-  //TODO: probably only when mode changes?
-  //if (params.mode && device.currentValue("mode") != params.mode) {
-  //  logInfo "Alarm mode for device ${device.label} is ${params.mode}"
-  //  sendEvent(name: "mode", value: params.mode)
-  //}
+  if (deviceInfo.powerSave != null) {
+    checkChanged("powerSave", POWER_SAVE.getOrDefault(deviceInfo.powerSave, 'unknown'))
+  }
 
-  if (deviceInfo.impulseType == "keypad.motion") {
-    checkChanged("motion", "active")
-    //The inactive message almost never comes reliably. for now we'll schedule it off
-    unschedule()
-    runIn(motionTimeout.toInteger(), stopMotion)
-  }
-  
-  for(key in ['brightness', 'volume']) {
-    if (deviceInfo?.state?.get(key) != null) {
-      checkChanged(key, (deviceInfo.state[key] * 100) as Integer)
-    }
-  }
-  
   if (deviceInfo.batteryLevel != null) {
     checkChanged("battery", deviceInfo.batteryLevel, "%")
   }
 
-  for(key in ['impulseType', 'lastCommTime', 'lastUpdate', 'nextExpectedWakeup', 'signalStrength']) {
-    if (deviceInfo[key]) {
-      state[key] = deviceInfo[key]
-    }
+  if (deviceInfo.impulseType == "keypad.motion") {
+    checkChanged("motion", "active")
+    //The inactive message almost never comes reliably. for now we'll schedule it off
+    runIn(motionTimeout.toInteger(), stopMotion)
   }
-  
-  if (deviceInfo?.impulseType == "comm.heartbeat") {
-    sendEvent(name: "lastCheckin", value: convertToLocalTimeString(new Date()), displayed: false, isStateChange: true)
+
+  if (deviceInfo.volume != null) {
+    updateVolumeInternal(deviceInfo.volume)
   }
-  
-  for(key in ['firmware', 'hardwareVersion']) {
-    if (deviceInfo[key] && device.getDataValue(key) != deviceInfo[key]) {
-      device.updateDataValue(key, deviceInfo[key])
-    }
+
+  // Update attributes where deviceInfo key is the same as attribute name and no conversion is necessary
+  for (final entry in deviceInfo.subMap(["batteryStatus", "brightness", "chirps", "commStatus", "firmware", "tamper"])) {
+    checkChanged(entry.key, entry.value)
+  }
+
+  // Update state values
+  Map stateValues = deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'signalStrength'])
+  if (stateValues) {
+      state << stateValues
   }
 }
 
-def checkChanged(attribute, newStatus, unit=null) {
-  if (device.currentValue(attribute) != newStatus) {
+void setPassthruValues(final Map deviceInfo) {
+  logDebug "setPassthruValues(${deviceInfo})"
+
+  if (deviceInfo.percent != null) {
+    log.warn "${device.label} is updating firmware: ${deviceInfo.percent}% complete"
+  }
+}
+
+void runCleanup() {
+  device.removeDataValue('firmware') // Is an attribute now
+  state.remove('nextExpectedWakeup') // Device doesn't seem to have this value
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
 }
 
-private convertToLocalTimeString(dt) {
-  def timeZoneId = location?.timeZone?.ID
-  if (timeZoneId) {
-    return dt.format("yyyy-MM-dd h:mm:ss a", TimeZone.getTimeZone(timeZoneId))
-  }
-  else {
-    return "$dt"
-  }
-}
+@Field final static Integer VOLUME_INC = 5
 
-def childParse(type, params = []) {
-  logDebug "childParse(type, params)"
-  logTrace "type ${type}"
-  logTrace "params ${params}"
-}
+@Field final static Map POWER_SAVE = [
+  'off': 'off',
+  'extended': 'on',
+].asImmutable()

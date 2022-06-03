@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Chime Device Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,24 +12,24 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *
- *
- *  Change Log:
- *  2019-03-02: Initial
- *  2019-11-15: Import URL
- *  2019-12-20: API changes to accommodate Ring upstream API changes
- *  2020-02-29: Changed namespace
  */
 
+// @todo Consider using /ringtones
+// @todo Consider being able to set do_not_disturb
+
+import groovy.transform.Field
+
 metadata {
-  definition(name: "Ring Virtual Chime", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-chime.groovy") {
+  definition(name: "Ring Virtual Chime", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Actuator"
-    capability "Tone"
     capability "AudioNotification"
     capability "AudioVolume"
     capability "Refresh"
     capability "Polling"
+    capability "Tone"
+
+    attribute "rssi", "number"
+    attribute "wifi", "string"
 
     command "playDing"
     command "playMotion"
@@ -41,21 +42,16 @@ metadata {
   }
 }
 
-private logInfo(msg) {
+void logInfo(msg) {
   if (descriptionTextEnable) log.info msg
 }
 
-def logDebug(msg) {
+void logDebug(msg) {
   if (logEnable) log.debug msg
 }
 
-def logTrace(msg) {
+void logTrace(msg) {
   if (traceLogEnable) log.trace msg
-}
-
-def configure() {
-  logDebug "configure()"
-  refresh()
 }
 
 def parse(String description) {
@@ -68,205 +64,171 @@ def poll() {
 }
 
 def refresh() {
-  logDebug "Attempting to refresh."
-  parent.simpleRequest("refresh", [dni: device.deviceNetworkId])
+  logDebug "refresh()"
+  parent.apiRequestDeviceRefresh(device.deviceNetworkId)
+  parent.apiRequestDeviceHealth(device.deviceNetworkId, "chimes")
 }
 
-def beep() {
-  playMotion()
-}
+void beep() { playMotion() }
 
-def playMotion() {
-  logDebug "Attempting to play motion."
+void playMotion() {
   if (!isMuted()) {
-    parent.simpleRequest("device-control", [dni: device.deviceNetworkId, kind: "chimes", action: "play_sound", params: [kind: "motion"]])
-  }
-  else {
-    logInfo "No motion because muted"
+    parent.apiRequestDeviceControl(device.deviceNetworkId, "chimes", "play_sound", [kind: "motion"])
+  } else {
+    logInfo "playMotion: Not playing because device is muted"
   }
 }
 
-def playDing() {
-  logDebug "Attempting to play ding."
+void playDing() {
   if (!isMuted()) {
-    parent.simpleRequest("device-control", [dni: device.deviceNetworkId, kind: "chimes", action: "play_sound", params: [kind: "ding"]])
-  }
-  else {
-    logInfo "No ding because muted"
-  }
-}
-
-def mute() {
-  logDebug "Attempting to mute."
-  if (!isMuted()) {
-    state.prevVolume = device.currentValue("volume")
-    setVolume(0)
-  }
-  else {
-    logInfo "Already muted."
-    sendEvent(name: "mute", value: "muted")
+    parent.apiRequestDeviceControl(device.deviceNetworkId, "chimes", "play_sound", [kind: "ding"])
+  } else {
+    logInfo "playDing: Not playing because device is muted"
   }
 }
 
-def unmute() {
-  logDebug "Attempting to unmute."
-  if (isMuted()) {
-    setVolume(state.prevVolume)
-  }
-  else {
-    logInfo "Already unmuted."
-    sendEvent(name: "mute", value: "unmuted")
-  }
-}
+void setVolume(volumelevel) {
+  // Value must be in [0, 100]
+  volumelevel = Math.min(Math.max(volumelevel == null ? 50 : volumelevel.toInteger(), 0), 100)
 
-def setVolume(volumelevel) {
-  logDebug "Attempting to set volume."
-  if (device.currentValue("volume") != volumelevel) {
-    parent.simpleRequest("device-set", [
-      dni: device.deviceNetworkId,
-      kind: "chimes",
-      params: ["chime[settings][volume]": (volumelevel / 10 as Integer)]
-    ])
+  Integer currentVolume = device.currentValue("volume")
+
+  if (currentVolume != volumelevel) {
+    logTrace "requesting volume change to ${volumelevel}"
+
+    final Integer sentValue = volumelevel / 10
+
+    parent.apiRequestDeviceSet(device.deviceNetworkId, "chimes", null, ["chime[settings][volume]": sentValue])
   }
   else {
     logInfo "Already at volume."
-    sendEvent(name: "volume", value: device.currentValue("volume"))
+    sendEvent(name: "volume", value: currentVolume)
   }
 }
 
-def volumeUp() {
-  logDebug "Attempting to raise volume."
-  def currVol = device.currentValue("volume") / 10 as Integer
-  if (currVol < 10) {
-    setVolume((currVol + 1) * 10)
+void volumeUp() {
+  Integer currentVolume = device.currentValue("volume")
+  Integer nextVol = currentVolume + VOLUME_INC
+  if (nextVol <= 100) {
+    setVolume(nextVol)
   }
   else {
     logInfo "Already max volume."
-    sendEvent(name: "volume", value: device.currentValue("volume"))
+    sendEvent(name: "volume", value: currentVolume)
   }
 }
 
-def volumeDown() {
-  logDebug "Attempting to lower volume."
-  def currVol = device.currentValue("volume") / 10 as Integer
-  if (currVol > 0) {
-    setVolume((currVol - 1) * 10)
+void volumeDown() {
+  Integer currentVolume = device.currentValue("volume")
+  Integer nextVol = currentVolume - VOLUME_INC
+  if (nextVol >= 0) {
+    setVolume(nextVol)
   }
   else {
     logInfo "Already min volume."
-    sendEvent(name: "volume", value: device.currentValue("volume"))
+    sendEvent(name: "volume", value: currentVolume)
   }
 }
 
-//TODO
-/*
-playText(text, volumelevel)
-text required (STRING) - Text to play
-volumelevel optional (NUMBER) - Volume level (0 to 100)
-playTextAndRestore(text, volumelevel)
-text required (STRING) - Text to play
-volumelevel optional (NUMBER) - Volume level (0 to 100)
-playTextAndResume(text, volumelevel)
-text required (STRING) - Text to play
-volumelevel optional (NUMBER) - Volume level (0 to 100)
-*/
-
-def playTrack(trackuri, volumelevel) {
-  log.error "Not implemented! playTrack(trackuri, volumelevel)"
+void mute() {
+  setVolume(0)
 }
 
-def playTrackAndRestore(trackuri, volumelevel) {
-  log.error "Not implemented! playTrackAndRestore(trackuri, volumelevel)"
+void unmute() {
+  setVolume(state.prevVolume)
 }
 
-def playTrackAndResume(trackuri, volumelevel) {
-  log.error "Not implemented! playTrackAndResume(trackuri, volumelevel)"
-}
+void updateVolumeInternal(volume) {
+  Integer prevVolume = device.currentValue("volume")
 
-def childParse(type, params = []) {
-  logDebug "childParse(type, params)"
-  logTrace "type ${type}"
-  logTrace "params ${params}"
+  volume = volume.toInteger() * 10
 
-  state.lastUpdate = now()
-
-  if (type == "refresh") {
-    logTrace "refresh"
-    handleRefresh(params.msg)
-  }
-  else if (type == "device-control") {
-    logTrace "device-control"
-    handleBeep(type, params)
-  }
-  else if (type == "device-set") {
-    logTrace "volume"
-    handleVolume(type, params)
-  }
-  else {
-    log.error "Unhandled type ${type}"
+  if (checkChanged("volume", volume)) {
+    state.prevVolume == prevVolume
+    if (volume == 0) {
+      checkChanged("mute", "muted")
+    } else {
+      checkChanged("mute", "unmuted")
+    }
   }
 }
 
-private handleBeep(id, params) {
-  logTrace "handleBeep(${id}, ${params.response})"
-  if (params.response != 204) {
-    log.warn "Not successful?"
-    return
-  }
-  if (params.action == "play_sound") {
-    logInfo "Device ${device.label} played ${params.kind}"
-  }
-}
+void playText(text, volumelevel) { log.error "playText not implemented!" }
+void playTextAndRestore(text, volumelevel) { log.error "playTextAndRestore not implemented!" }
+void playTextAndResume(text, volumelevel) { log.error "playTextAndResume not implemented!" }
+def playTrack(trackuri, volumelevel) { log.error "playTrack not implemented!" }
+def playTrackAndRestore(trackuri, volumelevel) { log.error "playTrackAndRestore not implemented!" }
+def playTrackAndResume(trackuri, volumelevel) { log.error "playTrackAndResume not implemented!" }
 
-private handleVolume(id, params) {
-  logTrace "handleVolume(${id}, ${params})"
-  if (params.response != 204) {
-    log.warn "Not successful?"
-    return
-  }
-
-  sendEvent(name: "volume", value: (params.volume as Integer) * 10)
-  logInfo "Device ${device.label} volume set to ${(params.volume as Integer) * 10}"
-
-  if (params.volume == 0 && device.currentValue("mute") != "muted") {
-    sendEvent(name: "mute", value: "muted")
-    logInfo "Device ${device.label} set to muted"
-  }
-  if (params.volume != 0 && device.currentValue("mute") == "muted") {
-    sendEvent(name: "mute", value: "unmuted")
-    logInfo "Device ${device.label} set to unmuted"
-  }
-}
-
-private handleRefresh(json) {
-  logDebug "handleRefresh(json)"
-  logTrace "json ${json}"
-  if (!json.settings) {
-    log.warn "No volume?"
-    return
-  }
-  if (device.currentValue("volume") != (json.settings.volume as Integer) * 10) {
-    sendEvent(name: "volume", value: (json.settings.volume as Integer) * 10)
-    logInfo "Device ${device.label} volume set to ${(json.settings.volume as Integer) * 10}"
-  }
-  if (device.currentValue("mute") == null) {
-    sendEvent(name: "mute", value: "unmuted")
-    logInfo "Device ${device.label} set to unmuted"
-  }
-  if (state.prevVolume == null) {
-    state.prevVolume = 50
-    logInfo "No previous volume found so arbitrary value given"
-  }
-
-  if (json.firmware_version && device.getDataValue("firmware") != json.firmware_version) {
-    device.updateDataValue("firmware", json.firmware_version)
-  }
-  if (json.kind && device.getDataValue("kind") != json.kind) {
-    device.updateDataValue("kind", json.kind)
-  }
-
-}
-
-private isMuted() {
+private boolean isMuted() {
   return device.currentValue("mute") == "muted"
 }
+
+void handleDeviceControl(final String action, final Map msg, final Map query) {
+  if (action == "play_sound") {
+    if (query?.kind) {
+      logInfo "Device ${device.label} played '${query?.kind}'"
+    }
+    else {
+      log.error "handleDeviceControl unsupported play_sound with query ${query}"
+    }
+  }
+  else {
+    log.error "handleDeviceControl unsupported action ${action}"
+  }
+}
+
+void handleDeviceSet(final String action, final Map msg, final Map query) {
+  if (action == null) {
+    if (query?.containsKey("chime[settings][volume]")) {
+      updateVolumeInternal(query["chime[settings][volume]"])
+    }
+    else {
+      log.error "handleDeviceSet unsupported null action with query ${query}"
+    }
+  }
+  else {
+    log.error "handleDeviceSet unsupported action ${action}, msg=${msg}, query=${query}"
+  }
+}
+
+void handleHealth(final Map msg) {
+  if (msg.device_health) {
+    if (msg.device_health.wifi_name) {
+      checkChanged("wifi", msg.device_health.wifi_name)
+    }
+  }
+}
+
+void handleRefresh(final Map msg) {
+  if (msg.settings?.volume != null) {
+    updateVolumeInternal(msg.settings.volume)
+  }
+
+  if (msg.kind != null) {
+    checkChangedDataValue("kind", msg.kind)
+  }
+}
+
+void runCleanup() {
+  state.remove('lastUpdate')
+  device.removeDataValue("firmware") // Doesn't appear to be available for this device
+  device.removeDataValue("device_id")
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
+    logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
+  }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
+}
+
+void checkChangedDataValue(final String name, final value) {
+  if (device.getDataValue(name) != value) {
+    device.updateDataValue(name, value)
+  }
+}
+
+@Field final static Integer VOLUME_INC = 10 // Chime volume is only in multiples of 10

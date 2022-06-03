@@ -1,7 +1,8 @@
 /**
  *  Ring Virtual Camera with Siren Device Driver
  *
- *  Copyright 2019 Ben Rimmasch
+ *  Copyright 2019-2020 Ben Rimmasch
+ *  Copyright 2021 Caleb Morse
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -11,33 +12,25 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *
- *
- *  Change Log:
- *  2019-11-09: Initial
- *  2019-11-13: Added battery level support
- *  2019-11-15: Import URL
- *  2019-12-20: Started tinkering with getting thumbnails
- *  2020-02-29: Changed namespace
- *  2020-05-19: Snapshot preference
- *  2022-01-29: Connection state
  */
 
 metadata {
-  definition(name: "Ring Virtual Camera with Siren", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch",
-    importUrl: "https://raw.githubusercontent.com/codahq/ring_hubitat_codahq/master/src/drivers/ring-virtual-camera-with-siren.groovy") {
-    capability "Actuator"
-    capability "Sensor"
-    capability "Refresh"
-    capability "Polling"
+  definition(name: "Ring Virtual Camera with Siren", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Alarm"
-    capability "MotionSensor"
+    capability "Actuator"
     capability "Battery"
+    capability "MotionSensor"
+    capability "Polling"
+    capability "PushableButton"
+    capability "Refresh"
+    capability "Sensor"
+
+    attribute "firmware", "string"
+    attribute "rssi", "number"
+    attribute "wifi", "string"
+    attribute "connection", "string"
 
     command "getDings"
-    //command "test"
-      
-    attribute "connection", "string"
   }
 
   preferences {
@@ -49,20 +42,22 @@ metadata {
   }
 }
 
-private logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+void logInfo(msg) {
+  if (descriptionTextEnable) {
+    log.info msg
+  }
 }
 
-def logDebug(msg) {
-  if (logEnable) log.debug msg
+void logDebug(msg) {
+  if (logEnable) {
+    log.debug msg
+  }
 }
 
-def logTrace(msg) {
-  if (traceLogEnable) log.trace msg
-}
-
-def configure() {
-
+void logTrace(msg) {
+  if (traceLogEnable) {
+    log.trace msg
+  }
 }
 
 def parse(String description) {
@@ -75,7 +70,8 @@ def poll() {
 
 def refresh() {
   logDebug "refresh()"
-  parent.simpleRequest("refresh", [dni: device.deviceNetworkId])
+  parent.apiRequestDeviceRefresh(device.deviceNetworkId)
+  parent.apiRequestDeviceHealth(device.deviceNetworkId, "doorbots")
   scheduleDevicePolling()
 }
 
@@ -95,12 +91,7 @@ def scheduleDevicePolling() {
 
 def getDings() {
   logDebug "getDings()"
-  parent.simpleRequest("dings")
-}
-
-def test() {
-  //parent.simpleRequest("history", [dni: device.deviceNetworkId])
-  parent.simpleRequest("snapshot-image-tmp", [dni: device.deviceNetworkId])
+  parent.apiRequestDings()
 }
 
 def installed() {
@@ -112,13 +103,12 @@ def updated() {
   pollDeviceStatus()
 }
 
-def off(boolean modifyAlarm = true) {
-  parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "siren_off"])
+def off() {
+  parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "siren_off")
 }
 
 def siren() {
-  logDebug "Attempting to turn on siren."
-  parent.simpleRequest("device-set", [dni: device.deviceNetworkId, kind: "doorbots", action: "siren_on"])
+  parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "siren_on")
 }
 
 def strobe(value = "strobe") {
@@ -129,101 +119,91 @@ def both() {
   log.error "Both (strobe and siren) not implemented for device type ${device.getDataValue("kind")}"
 }
 
+def push(Integer button) {
+  log.error "Push not implemented for device type ${device.getDataValue("kind")}"
+}
 
-def childParse(type, params) {
-  logDebug "childParse(type, msg)"
-  logTrace "type ${type}"
-  logTrace "params ${params}"
+void handleDeviceSet(final String action, final Map msg, final Map query) {
+  if (action == "siren_on") {
+    if (device.currentValue("alarm") != "both") {
+      checkChanged("alarm", "siren")
+    }
 
-  if (type == "refresh") {
-    logTrace "refresh"
-    handleRefresh(params.msg)
+    runIn(msg.seconds_remaining + 1, refresh)
   }
-  else if (type == "device-set") {
-    logTrace "set"
-    handleSet(type, params)
-  }
-  else if (type == "dings") {
-    logTrace "dings"
-    handleDings(params.type, params.msg)
-  }
-  else if (type == "snapshot-image") {
-    state.snapshot = params.jpg
+  else if (action == "siren_off") {
+    checkChanged('alarm', "off")
   }
   else {
-    log.error "Unhandled type ${type}"
+    log.error "handleDeviceSet unsupported action ${action}, msg=${msg}, query=${query}"
   }
 }
 
-private handleRefresh(json) {
-  logDebug "handleRefresh(${json.description})"
-  
-  if (json.alerts != null && json.alerts.connection != null) {
-    checkChanged("connection", json.alerts.connection) // devices seem to be considered offline after 20 minutes
-  }
-    
-  if (json.battery_life != null) {
-    checkChanged("battery", json.battery_life)
-  }
-  if (json.siren_status?.seconds_remaining != null) {
-    def value = json.siren_status.seconds_remaining > 0 ? "siren" : "off"
-    checkChanged("alarm", value)
-    if (value == "siren") {
-      runIn(json.siren_status.seconds_remaining + 1, refresh)
+void handleHealth(final Map msg) {
+  if (msg.device_health) {
+    if (msg.device_health.wifi_name) {
+      checkChanged("wifi", msg.device_health.wifi_name)
     }
   }
-  if (json.firmware_version && device.getDataValue("firmware") != json.firmware_version) {
-    device.updateDataValue("firmware", json.firmware_version)
-  }
 }
 
-private handleSet(id, params) {
-  logTrace "handleSet(${id}, ${params})"
-  if (params.response != 200) {
-    log.warn "Not successful?"
-    return
-  }
-  if (params.action == "siren_on") {
-    def value = device.currentValue("alarm") == "both" ? "both" : "siren"
-    if (value != "both") {
-      logInfo "Device ${device.label} alarm is ${value}"
-      sendEvent(name: "alarm", value: value)
-    }
-    runIn(params.msg.seconds_remaining + 1, refresh)
-  }
-  else if (params.action == "siren_off") {
-    logInfo "Device ${device.label} alarm is off"
-    sendEvent(name: "alarm", value: "off")
-  }
-  else {
-    log.error "Unsupported set ${params.action}"
-  }
-
-}
-
-private handleDings(type, json) {
-  logTrace "json: ${json}"
-  if (json == null) {
-    checkChanged("motion", "inactive")
-  }
-  else if (json.kind == "motion" && json.motion == true) {
+void handleMotion(final Map msg) {
+  if (msg.motion == true) {
     checkChanged("motion", "active")
+
+    runIn(60, motionOff) // We don't get motion off msgs from ifttt, and other motion only happens on a manual refresh
+  }
+  else if(msg.motion == false) {
+    checkChanged("motion", "inactive")
     unschedule(motionOff)
   }
-  if (type == "IFTTT") {
-    def motionTimeout = 60
-    runIn(motionTimeout, motionOff)
+  else {
+    log.error ("handleMotion unsupported msg: ${msg}")
   }
 }
 
-def motionOff(data) {
-  logDebug "motionOff($data)"
-  childParse("dings", [msg: null])
+void handleRefresh(final Map msg) {
+  if (msg.alerts?.connection != null) {
+    checkChanged("connection", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
+  }
+  
+  if (msg.battery_life != null) {
+    checkChanged("battery", msg.battery_life, '%')
+  }
+  if (msg.siren_status?.seconds_remaining != null) {
+    final Integer seconds_remaining = msg.siren_status.seconds_remaining
+    checkChanged("alarm", seconds_remaining > 0 ? "siren" : "off")
+    if (seconds_remaining > 0) {
+      runIn(seconds_remaining + 1, refresh)
+    }
+  }
+  if (msg.health) {
+    final Map health = msg.health
+
+    if (health.firmware_version) {
+      checkChanged("firmware", health.firmware_version)
+    }
+
+    if (health.rssi) {
+      checkChanged("rssi", health.rssi)
+    }
+  }
 }
 
-def checkChanged(attribute, newStatus, unit=null) {
-  if (device.currentValue(attribute) != newStatus) {
+void motionOff() {
+  checkChanged("motion", "inactive")
+}
+
+void runCleanup() {
+  device.removeDataValue("firmware") // Is an attribute now
+  device.removeDataValue("device_id")
+}
+
+boolean checkChanged(final String attribute, final newStatus, final String unit=null, final String type=null) {
+  final boolean changed = device.currentValue(attribute) != newStatus
+  if (changed) {
     logInfo "${attribute.capitalize()} for device ${device.label} is ${newStatus}"
-    sendEvent(name: attribute, value: newStatus, unit: unit)
   }
+  sendEvent(name: attribute, value: newStatus, unit: unit, type: type)
+  return changed
 }
