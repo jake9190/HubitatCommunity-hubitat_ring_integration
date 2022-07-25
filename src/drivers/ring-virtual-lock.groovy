@@ -36,15 +36,15 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) log.debug msg
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+  if (traceLogEnable) { log.trace msg }
 }
 
 void refresh() {

@@ -43,15 +43,15 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) log.debug msg
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+  if (traceLogEnable) { log.trace msg }
 }
 
 def parse(String description) {
@@ -72,18 +72,18 @@ def refresh() {
 void beep() { playMotion() }
 
 void playMotion() {
-  if (!isMuted()) {
-    parent.apiRequestDeviceControl(device.deviceNetworkId, "chimes", "play_sound", [kind: "motion"])
-  } else {
+  if (isMuted()) {
     logInfo "playMotion: Not playing because device is muted"
+  } else {
+    parent.apiRequestDeviceControl(device.deviceNetworkId, "chimes", "play_sound", [kind: "motion"])
   }
 }
 
 void playDing() {
-  if (!isMuted()) {
-    parent.apiRequestDeviceControl(device.deviceNetworkId, "chimes", "play_sound", [kind: "ding"])
-  } else {
+  if (isMuted()) {
     logInfo "playDing: Not playing because device is muted"
+  } else {
+    parent.apiRequestDeviceControl(device.deviceNetworkId, "chimes", "play_sound", [kind: "ding"])
   }
 }
 

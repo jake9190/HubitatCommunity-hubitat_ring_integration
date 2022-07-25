@@ -44,15 +44,15 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) log.debug msg
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+  if (traceLogEnable) { log.trace msg }
 }
 
 def refresh() {
@@ -139,7 +139,7 @@ boolean checkChanged(final String attribute, final newStatus, final String unit=
 }
 
 @Field final Set NO_BATTERY_DEVICES = ["ring-beams-c5000"].toSet().asImmutable()
-@Field final Set NO_BRIGHTNESS_DEVICES= ["ring-beams-c5000"].toSet().asImmutable()
+@Field final Set NO_BRIGHTNESS_DEVICES = ["ring-beams-c5000"].toSet().asImmutable()
 
 @Field final static Map MOTION_SENSITIVITY = [
   0: 'high', // Custom 5

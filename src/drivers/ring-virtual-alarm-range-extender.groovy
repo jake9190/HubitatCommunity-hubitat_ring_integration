@@ -24,7 +24,7 @@ metadata {
     capability "Sensor"
     capability "TamperAlert"
 
-    attribute "acStatus", "enum", ["brownout", "error", "ok"]
+    attribute "acStatus", "enum", ["brownout", "connected", "disconnected"]
     attribute "batteryStatus", "enum", ["charged", "charging", "failed", "full", "low", "malfunction", "none", "ok", "warn"]
     attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
     attribute "firmware", "string"
@@ -38,15 +38,15 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) log.debug msg
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+  if (traceLogEnable) { log.trace msg }
 }
 
 void refresh() {
@@ -74,7 +74,7 @@ void setValues(final Map deviceInfo) {
   // Update state values
   Map stateValues = deviceInfo.subMap(['impulseType', 'lastCommTime', 'lastUpdate', 'signalStrength'])
   if (stateValues) {
-	  state << stateValues
+      state << stateValues
   }
 }
 

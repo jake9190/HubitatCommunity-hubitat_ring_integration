@@ -59,35 +59,35 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) log.debug msg
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+  if (traceLogEnable) { log.trace msg }
 }
 
 def setMode(mode) {
   logDebug "setMode(${mode})"
-  if (!state.alarmCapable) {
-    parent.apiRequestModeSet(device.deviceNetworkId, mode.toLowerCase())
+  if (state.alarmCapable) {
+    log.error "setMode supported from API device. Ring account has alarm present so use alarm modes!"
   }
   else {
-    log.error "setMode supported from API device. Ring account has alarm present so use alarm modes!"
+    parent.apiRequestModeSet(device.deviceNetworkId, mode.toLowerCase())
   }
 }
 
 void setDebugImpulseTypeExcludeList(excludeList) {
-  state.debugImpulseTypeExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as Set
+  state.debugImpulseTypeExcludeList = excludeList?.replaceAll("\\s", "")?.split(",") as Set
 }
 void setDebugImpulseCommandCompleteExcludeList(excludeList) {
-  state.debugImpulseCommandCompleteExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as Set
+  state.debugImpulseCommandCompleteExcludeList = excludeList?.replaceAll("\\s", "")?.split(",") as Set
 }
 void setDebugImpulseErrorSetInfoExcludeList(excludeList) {
-  state.debugImpulseErrorSetInfoExcludeList = excludeList?.replaceAll("\\s","")?.split(",") as Set
+  state.debugImpulseErrorSetInfoExcludeList = excludeList?.replaceAll("\\s", "")?.split(",") as Set
 }
 
 def installed() {
@@ -111,7 +111,7 @@ def initialize() {
   }
 
   // If hubs are defined, then setup the websocket
-  if (state.hubs != null && state.hubs.size() > 0) {
+  if (state.hubs) {
     updateTokensAndReconnectWebSocket()
   } else {
     log.warn "Nothing to initialize..."
@@ -166,7 +166,7 @@ void setEnabledHubDoorbotIds(final Set<Integer> enabledHubDoorbotIds) {
 
 // @note Should only be called by Ring Connect app
 boolean isHubPresent(final Integer doorbotId) {
-  final String zid = state.hubs?.find({ it.value == doorbotId })?.key
+  final String zid = state.hubs?.find { it.value == doorbotId }?.key
   return zid != null && getChildByZID(zid) != null
 }
 
@@ -189,7 +189,7 @@ void updateTickets(final Map ticket) {
   if (state.createableHubs != null) {
     log.warn("Migrating old createableHubs list to new")
 
-    state.enabledHubDoorbotIds = ticket.assets.findAll { state.createableHubs.contains(it.kind) }.collect { it.doorbotId }.toSet()
+    state.enabledHubDoorbotIds = (ticket.assets.findAll { state.createableHubs.contains(it.kind) }*.doorbotId).toSet()
 
     state.remove('createableHubs')
   }
@@ -197,7 +197,7 @@ void updateTickets(final Map ticket) {
   final List enabledHubs = ticket.assets.findAll { state.enabledHubDoorbotIds.contains(it.doorbotId) }
 
   state.hubs = enabledHubs.collectEntries { [(it.uuid): it.doorbotId] }
-  state.alarmCapable = enabledHubs.find({ALARM_CAPABLE_KINDS.contains(it.kind)}) != null
+  state.alarmCapable = enabledHubs.find { ALARM_CAPABLE_KINDS.contains(it.kind) } != null
 
   final String wsUrl = "wss://${ticket.host}/ws?authcode=${ticket.ticket}&ack=false"
   logTrace "wsUrl: $wsUrl"
@@ -231,6 +231,11 @@ void refresh(final String zid=null) {
 
 void refreshInternal(final String zid, boolean quiet) {
   logDebug "refresh(${zid})"
+
+  if (!state.hubs) {
+    log.warn "Nothing to refresh. No hubs configured. Use 'Discover Devices' in the main Ring app to add hubs"
+    return
+  }
 
   final Set zidsToRefresh = zid == null ? state.hubs.keySet() : [zid]
   for (final String curZid in zidsToRefresh) {
@@ -362,9 +367,9 @@ void webSocketStatus(final String status) {
       // If it had taken > 10 seconds to do a silent reconnect, then just do normal logging
       if (timeSince <= 10) {
         isSilentWebsocketReconnect = true
-        logDebug ("Silent reconnect succeeded")
+        logDebug("Silent reconnect succeeded")
       } else {
-        log.warn ("Silent reconnect took too long (${timeSince}s > 10s)")
+        log.warn("Silent reconnect took too long (${timeSince}s > 10s)")
       }
     }
 
@@ -423,7 +428,7 @@ void updateTokensAndReconnectWebSocket() {
 // Ring disconnects websocket connections every 4 hours (+ ~3 seconds). This causes unnecessary log messages
 // To reduce these messages we have a scheduled task that runs 4 hours after a websocket connection was opened
 void silentWebsocketReconnect() {
-  logDebug ("silentWebsocketReconnect")
+  logDebug("silentWebsocketReconnect")
   state.silentWebSocketReconnectTime = now()
 
   runInMillis(100, silentWebsocketReconnectCloseSocket)
@@ -471,22 +476,23 @@ def parse(String description) {
   def json
   try {
     json = parseJson(description)
-  } catch(Exception e) {
+  } catch (Exception e) {
     if (description.startsWith("42")) {
-      log.warn ("Websocket appears to be connected to older Ring API. Reconnecting. If this warning persists, report the issue.")
+      log.warn("Websocket appears to be connected to older Ring API. Reconnecting. If this warning persists, report the issue.")
+      /* groovylint-disable-next-line ReturnNullFromCatchBlock */
       updateTokensAndReconnectWebSocket()
     } else {
-      log.error ("Error parsing json: ${e}")
+      log.error("Error parsing json: ${e}")
     }
     return
   }
 
   if (!(json instanceof Map)) {
     if (description == "2" || description == "3") {
-      log.warn ("Websocket appears to be connected to older Ring API. Reconnecting. If this warning persists, report the issue.")
+      log.warn("Websocket appears to be connected to older Ring API. Reconnecting. If this warning persists, report the issue.")
       updateTokensAndReconnectWebSocket()
     } else {
-      log.error ("Error parsing json. Expected to get a map. Msg was: '${description}'")
+      log.error("Error parsing json. Expected to get a map. Msg was: '${description}'")
     }
     return
   }
@@ -820,15 +826,15 @@ Map<String, Map> parseDeviceInfoDocType(final Map json, final String assetId, fi
     final boolean isPartialDeviceType = ALARM_HUB_PARTIAL_DEVICE_TYPES.contains(deviceType)
 
     // Get basic keys
-    if (!HUB_COMPOSITE_DEVICES.contains(deviceType)) {
+    if (HUB_COMPOSITE_DEVICES.contains(deviceType)) {
+      curDeviceInfo.deviceType = assetKind
+      curDeviceInfo.zid = assetId // Use hub zid instead of child
+      curDeviceInfo[deviceType + '-zid'] = tmpGeneral.zid // Pass along the child zid
+    } else {
       curDeviceInfo << tmpGeneral.subMap(['deviceType', 'zid'])
 
       // context.v1.deviceName key seems to only show up for full refreshes, otherwise value is at general.v2.name
       curDeviceInfo.name = tmpGeneral.name ?: deviceJson.context?.v1?.deviceName
-    } else {
-      curDeviceInfo.deviceType = assetKind
-      curDeviceInfo.zid = assetId // Use hub zid instead of child
-      curDeviceInfo[deviceType + '-zid'] = tmpGeneral.zid // Pass along the child zid
     }
 
     /**
@@ -1060,7 +1066,10 @@ Map<String, Map> parseDeviceInfoDocType(final Map json, final String assetId, fi
 }
 
 void createChild(final String hubZid, final Map deviceInfo) {
-  if (!getChildByZID(deviceInfo.zid)) {
+  if (getChildByZID(deviceInfo.zid)) {
+    logDebug "Not creating device for zid ${deviceInfo.zid} because it already exists"
+  }
+  else {
     final String deviceType = deviceInfo.deviceType
 
     final String mappedDeviceTypeName = DEVICE_TYPE_NAMES[deviceType]
@@ -1086,9 +1095,6 @@ void createChild(final String hubZid, final Map deviceInfo) {
       }
     }
   }
-  else {
-    logDebug "Not creating device for zid ${deviceInfo.zid} because it already exists"
-  }
 }
 
 void setInitialDeviceDataValues(d, final String type, final String hubZid, final Map deviceInfo) {
@@ -1107,17 +1113,7 @@ void sendUpdate(final String assetKind, final String hubZid, final Map deviceInf
   final String deviceType = deviceInfo.deviceType
 
   def d = getChildByZID(deviceInfo.zid)
-  if (!d) {
-    if (!suppressMissingDeviceMessages) {
-      if (DEVICE_TYPE_NAMES.containsKey(deviceType)) {
-        logMissingDeviceMsg("sendUpdate", deviceInfo.zid, deviceInfo.name)
-      } else {
-        log.warn "Device ${deviceInfo.name} of type ${deviceType} with zid ${deviceInfo.zid} is not currently supported"
-        log.warn (JsonOutput.toJson(deviceInfo))
-      }
-    }
-  }
-  else {
+  if (d) {
     d.setValues(deviceInfo)
 
     // Old versions set device data fields incorrectly. Hubitat v2.2.4 appears to clean up
@@ -1134,6 +1130,15 @@ void sendUpdate(final String assetKind, final String hubZid, final Map deviceInf
         setInitialDeviceDataValues(d, assetKind, hubZid, deviceInfo)
       }
     }
+  } else {
+    if (!suppressMissingDeviceMessages) {
+      if (DEVICE_TYPE_NAMES.containsKey(deviceType)) {
+        logMissingDeviceMsg("sendUpdate", deviceInfo.zid, deviceInfo.name)
+      } else {
+        log.warn "Device ${deviceInfo.name} of type ${deviceType} with zid ${deviceInfo.zid} is not currently supported"
+        log.warn(JsonOutput.toJson(deviceInfo))
+      }
+    }
   }
 }
 
@@ -1141,10 +1146,10 @@ void sendPassthru(final Map deviceInfo) {
   logDebug "sendPassthru for zid ${deviceInfo.zid}"
 
   def d = getChildByZID(deviceInfo.zid)
-  if (!d) {
-    logMissingDeviceMsg("passthru", deviceInfo.zid)
-  } else {
+  if (d) {
     d.setPassthruValues(deviceInfo)
+  } else {
+    logMissingDeviceMsg("passthru", deviceInfo.zid)
   }
 }
 
@@ -1152,10 +1157,10 @@ void sendSessionInfo(final Map deviceInfo) {
   logDebug "sendSessionInfo for zid ${deviceInfo.zid}"
 
   def d = getChildByZID(deviceInfo.zid)
-  if (!d) {
-    logMissingDeviceMsg("sessionInfo", deviceInfo.zid)
-  } else {
+  if (d) {
     d.setValues(deviceInfo)
+  } else {
+    logMissingDeviceMsg("sessionInfo", deviceInfo.zid)
   }
 }
 
@@ -1165,9 +1170,7 @@ void logMissingDeviceMsg(final String source, final String zid, final String nam
   }
 }
 
-String getFormattedDNI(final String id) {
-  return 'RING||' + id.toString()
-}
+String getFormattedDNI(final String id) { return 'RING||' + id }
 
 def getChildByZID(final String zid) {
   return getChildDevice(getFormattedDNI(zid))

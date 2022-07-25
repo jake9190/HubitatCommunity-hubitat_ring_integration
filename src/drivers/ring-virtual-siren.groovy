@@ -20,9 +20,9 @@ metadata {
     capability "Refresh"
     capability "Sensor"
     capability "TamperAlert"
-    //capability "Alarm" For now this is commented out because I can't see a way through the WS or API to turn the siren on
-    //using the alarm hub's 'security-panel.sound-siren' set command does not work.  technically, the siren tests could be
-    //chained back to back with a scheduled call back but leaving this as is for now
+    // capability "Alarm" For now this is commented out because I can't see a way through the WS or API to turn the siren on
+    // using the alarm hub's 'security-panel.sound-siren' set command does not work. Technically, the siren tests could be
+    // chained back to back with a scheduled call back but leaving this as is for now
 
     attribute "commStatus", "enum", ["error", "ok", "update-queued", "updating", "waiting-for-join", "wrong-network"]
     attribute "firmware", "string"
@@ -39,15 +39,15 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) log.debug msg
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+  if (traceLogEnable) { log.trace msg }
 }
 
 void refresh() {
@@ -55,7 +55,7 @@ void refresh() {
 }
 
 def sirenTest() {
-  //TODO: make this impossible when alarm is armed. If you attempt this through Ring's UIs it is prevented
+  // @todo Make this impossible when alarm is armed. If you attempt this through Ring's UIs it is prevented
   //pearl is too deep a dive to add code so this device can ask the hub device what the mode is right now.
   parent.apiWebsocketRequestSetCommand("siren-test.start", device.getDataValue("src"), device.getDataValue("zid"))
 }

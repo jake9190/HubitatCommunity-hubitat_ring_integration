@@ -62,15 +62,15 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) log.debug msg
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+  if (traceLogEnable) { log.trace msg }
 }
 
 void createDevices() { parent.createDevices() }
@@ -137,8 +137,7 @@ void setVolume(volumelevel) {
 
   if (currentVolume != volumelevel) {
     logTrace "requesting volume change to ${volumelevel}"
-    Map data = [volume: volumelevel.toDouble() / 100]
-    parent.apiWebsocketRequestSetDevice(null, getHubZid(), data)
+    parent.apiWebsocketRequestSetDevice(null, getHubZid(), [volume: volumelevel.toDouble() / 100])
   }
   else {
     logInfo "Already at volume."
@@ -182,8 +181,7 @@ def setBrightness(brightness) {
   // Value must be in [0, 100]
   brightness = Math.min(Math.max(brightness == null ? 100 : brightness.toInteger(), 0), 100)
 
-  Map data = [brightness: brightness.toDouble() / 100]
-  parent.apiWebsocketRequestSetDevice(device.getDataValue("src"), getHubZid(), data)
+  parent.apiWebsocketRequestSetDevice(device.getDataValue("src"), getHubZid(), [brightness: brightness.toDouble() / 100])
 }
 
 String getHubZid() {

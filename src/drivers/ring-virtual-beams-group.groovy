@@ -33,15 +33,15 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) log.debug msg
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+  if (traceLogEnable) { log.trace msg }
 }
 
 def refresh() {
@@ -61,7 +61,7 @@ void setValues(final Map deviceInfo) {
 
   if (deviceInfo.groupMembers) {
     Map members = [:]
-    for(final String groupMemeber in deviceInfo.groupMembers) {
+    for (final String groupMemeber in deviceInfo.groupMembers) {
       def d = parent.getChildByZID(groupMemeber)
       if (d) {
         members[d.deviceNetworkId] = d.label

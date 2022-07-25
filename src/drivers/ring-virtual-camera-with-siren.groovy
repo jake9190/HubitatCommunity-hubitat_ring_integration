@@ -28,6 +28,7 @@ metadata {
     attribute "firmware", "string"
     attribute "rssi", "number"
     attribute "wifi", "string"
+    
     attribute "connection", "string"
 
     command "getDings"
@@ -43,21 +44,15 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) {
-    log.info msg
-  }
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) {
-    log.debug msg
-  }
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) {
-    log.trace msg
-  }
+  if (traceLogEnable) { log.trace msg }
 }
 
 def parse(String description) {
@@ -153,12 +148,12 @@ void handleMotion(final Map msg) {
 
     runIn(60, motionOff) // We don't get motion off msgs from ifttt, and other motion only happens on a manual refresh
   }
-  else if(msg.motion == false) {
+  else if (msg.motion == false) {
     checkChanged("motion", "inactive")
     unschedule(motionOff)
   }
   else {
-    log.error ("handleMotion unsupported msg: ${msg}")
+    log.error("handleMotion unsupported msg: ${msg}")
   }
 }
 
@@ -166,15 +161,18 @@ void handleRefresh(final Map msg) {
   if (msg.alerts?.connection != null) {
     checkChanged("connection", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
   }
-  
+
   if (msg.battery_life != null) {
     checkChanged("battery", msg.battery_life, '%')
   }
+  else if (msg.battery_life_2 != null) {
+    checkChanged("battery", msg.battery_life_2, "%")
+  }
   if (msg.siren_status?.seconds_remaining != null) {
-    final Integer seconds_remaining = msg.siren_status.seconds_remaining
-    checkChanged("alarm", seconds_remaining > 0 ? "siren" : "off")
-    if (seconds_remaining > 0) {
-      runIn(seconds_remaining + 1, refresh)
+    final Integer secondsRemaining = msg.siren_status.seconds_remaining
+    checkChanged("alarm", secondsRemaining > 0 ? "siren" : "off")
+    if (secondsRemaining > 0) {
+      runIn(secondsRemaining + 1, refresh)
     }
   }
   if (msg.health) {

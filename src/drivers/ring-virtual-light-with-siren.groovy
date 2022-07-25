@@ -17,16 +17,17 @@
 metadata {
   definition(name: "Ring Virtual Light with Siren", namespace: "ring-hubitat-codahq", author: "Ben Rimmasch") {
     capability "Actuator"
-    capability "Switch"
-    capability "Sensor"
-    capability "Refresh"
-    capability "Polling"
     capability "Alarm"
     capability "MotionSensor"
+    capability "Polling"
+    capability "Refresh"
+    capability "Sensor"
+    capability "Switch"
 
     attribute "firmware", "string"
     attribute "rssi", "number"
     attribute "wifi", "string"
+    
     attribute "connection", "string"
 
     command "alarmOff"
@@ -47,21 +48,15 @@ metadata {
 }
 
 void logInfo(msg) {
-  if (descriptionTextEnable) {
-    log.info msg
-  }
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) {
-    log.debug msg
-  }
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) {
-    log.trace msg
-  }
+  if (traceLogEnable) { log.trace msg }
 }
 
 def parse(String description) {
@@ -216,12 +211,12 @@ void handleMotion(final Map msg) {
 
     runIn(60, motionOff) // We don't get motion off msgs from ifttt, and other motion only happens on a manual refresh
   }
-  else if(msg.motion == false) {
+  else if (msg.motion == false) {
     checkChanged("motion", "inactive")
     unschedule(motionOff)
   }
   else {
-    log.error ("handleMotion unsupported msg: ${msg}")
+    log.error("handleMotion unsupported msg: ${msg}")
   }
 }
 
@@ -235,15 +230,15 @@ void handleRefresh(final Map msg) {
   }
 
   if (msg.siren_status?.seconds_remaining != null) {
-    final Integer seconds_remaining = msg.siren_status.seconds_remaining
-    checkChanged("alarm", seconds_remaining > 0 ? "siren" : "off")
-    if (seconds_remaining > 0) {
-      runIn(seconds_remaining + 1, refresh)
+    final Integer secondsRemaining = msg.siren_status.seconds_remaining
+    checkChanged("alarm", secondsRemaining > 0 ? "siren" : "off")
+    if (secondsRemaining > 0) {
+      runIn(secondsRemaining + 1, refresh)
     }
   }
 
   if (msg.is_sidewalk_gateway) {
-    log.warn ("Your device is being used as an Amazon sidewalk device.")
+    log.warn("Your device is being used as an Amazon sidewalk device.")
   }
 
   if (msg.health) {

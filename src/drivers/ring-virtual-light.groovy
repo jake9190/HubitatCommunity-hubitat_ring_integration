@@ -28,8 +28,8 @@ metadata {
     attribute "battery2", "number"
     attribute "rssi", "number"
     attribute "wifi", "string"
-    attribute "connection", "string"
 
+    attribute "connection", "string"
 
     command "flash"
     command "getDings"
@@ -50,16 +50,17 @@ metadata {
     input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
   }
 }
+
 void logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+  if (descriptionTextEnable) { log.info msg }
 }
 
 void logDebug(msg) {
-  if (logEnable) log.debug msg
+  if (logEnable) { log.debug msg }
 }
 
 void logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+  if (traceLogEnable) { log.trace msg }
 }
 
 def parse(String description) {
@@ -195,12 +196,12 @@ void handleMotion(final Map msg) {
 
     runIn(60, motionOff) // We don't get motion off msgs from ifttt, and other motion only happens on a manual refresh
   }
-  else if(msg.motion == false) {
+  else if (msg.motion == false) {
     checkChanged("motion", "inactive")
     unschedule(motionOff)
   }
   else {
-    log.error ("handleMotion unsupported msg: ${msg}")
+    log.error("handleMotion unsupported msg: ${msg}")
   }
 }
 
@@ -208,16 +209,17 @@ void handleRefresh(final Map msg) {
   if (msg.alerts?.connection != null) {
     checkChanged("connection", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
   }
-
-  if (msg.battery_life != null && !discardBatteryLevel) {
-    checkChanged("battery", msg.battery_life, "%")
-    if (msg.battery_life_2 != null) {
-      checkChanged("battery2", msg.battery_life_2, "%")
+  
+  if (!discardBatteryLevel) {
+    if (msg.battery_life != null) {
+      checkChanged("battery", msg.battery_life, "%")
+      if (msg.battery_life_2 != null) {
+        checkChanged("battery2", msg.battery_life_2, "%")
+      }
     }
-  }
-   
-  if (json.alerts != null && json.alerts.connection != null) {
-    checkChanged("connection", json.alerts.connection) // devices seem to be considered offline after 20 minutes
+    else if (msg.battery_life_2 != null) {
+      checkChanged("battery", msg.battery_life_2, "%")
+    }
   }
 
   if (msg.led_status) {

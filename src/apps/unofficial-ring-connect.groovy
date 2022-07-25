@@ -1,5 +1,5 @@
 /**
- *     Completely Unofficial Ring Connect App For Floodlights/Spotlights/Chimes Only (Don't hate me, Ring guys. I had to do it.)
+ * Completely Unofficial Ring Connect App For Floodlights/Spotlights/Chimes Only (Don't hate me, Ring guys. I had to do it.)
  *
  *  Copyright 2019-2020 Ben Rimmasch
  *  Copyright 2022 Caleb Morse
@@ -133,8 +133,8 @@ def mainPage() {
     if (!state.accessToken) { // Access token for Ecobee to make a callback into this code
       try {
         state.accessToken = createAccessToken()
-      } catch(final Exception e) {
-        log.error ("mainPage - OAuth Exception: ${e}")
+      } catch (final Exception e) {
+        log.error("mainPage - OAuth Exception: ${e}")
         section('<h2>OAuth Error</h2>') {
           paragraph('<b style="color: red;">OAUTH is not currently enabled for this app. You must enable it to continue. You can do this from the "Apps Code" section of the Hubitat UI for this app (the Hubitat "Official Ring Connect"). Enabling oauth should not be necessary if installed with HPM</b>')
         }
@@ -172,7 +172,7 @@ def mainPage() {
 
     if (childDevs) {
       section("Managed Installed Child Devices", hidden: true, hideable: true, hideWhenEmpty: true) {
-        for (child in childDevs.sort({ a, b -> a.deviceNetworkId <=> b.deviceNetworkId })) {
+        for (child in childDevs.sort { a, b -> a.deviceNetworkId <=> b.deviceNetworkId }) {
           String description = "Click here to manage this device"
 
           if (child.deviceNetworkId.startsWith(RING_API_DNI)) {
@@ -214,7 +214,7 @@ def notifications() {
 def ifttt() {
   setupDingables()
 
-  List dingables = state.dingables?.collect({ getChildDeviceInternal(it) })?.findAll({ it != null })
+  List dingables = state.dingables?.collect { getChildDeviceInternal(it) }?.findAll { it != null }
 
   dynamicPage(name: "ifttt", title: '<b style="font-size: 25px;">Using IFTTT To Receive Motion and Ring Events</b>') {
     section('<b style="font-size: 22px;">About IFTTT</b>') {
@@ -250,22 +250,22 @@ def ifttt() {
 - The last GUID is the access token created by this app using OAuth that IFTTT will use to authenticate to Hubitat. <b>DO NOT</b> disclose this to anybody. It is like a password.""")
     }
     section('<b style="font-size: 22px;">Body Payloads for Motion Events</b>') {
-      if (!dingables) {
-        paragraph("No installed devices support motion events")
-      } else {
-        paragraph(dingables.collect {
+      if (dingables) {
+         paragraph(dingables.collect {
             "<u>" + it.label + "</u>: " + JsonOutput.toJson([kind: 'motion', motion: true, id: it.deviceNetworkId])
           }.join('\n\n'))
+      } else {
+        paragraph("No installed devices support motion events")
       }
     }
     section('<b style="font-size: 22px;">Body Payloads for Ring Events</b>') {
-      List ringables = dingables?.findAll{ RINGABLES.contains(it.getDataValue("kind")) }
-      if (!ringables) {
-        paragraph("No installed devices support ring events")
-      } else {
+      List ringables = dingables?.findAll { RINGABLES.contains(it.getDataValue("kind")) }
+      if (ringables) {
         paragraph(ringables.collect {
             "<u>" + it.label + "</u>: " + JsonOutput.toJson([kind: 'ding', motion: false, id: it.deviceNetworkId])
           }.join('\n\n'))
+      } else {
+        paragraph("No installed devices support ring events")
       }
     }
     section('<b style="font-size: 22px;">Example Applet Screenshot</b>') {
@@ -300,7 +300,7 @@ def pollingPage() {
 def snapshots() {
   configureSnapshotPolling()
 
-  dynamicPage(name: "snapshots", nextPage: "mainPage") {
+  dynamicPage(name: "snapshots", title: "Configure camera snapshot polling", nextPage: "mainPage") {
     section('<h2>Snapshot Polling</h2>') {
       paragraph("Snapshots provided by this app will are only available locally, and not via the cloud. If you access the dashboards with these images they will only display locally (when on the same network as the hub).")
       paragraph("Normally Ring only polls your devices for snapshots when an app on your account is open that needs image thumbnails (i.e. new thumbnails are only pulled you have the dashboard open on the phone app).")
@@ -356,7 +356,7 @@ def snapshots() {
       paragraph("<b>WARNING: Do *not* share these URLs publicly</b>")
 
       for (final String snappable in getEnabledSnappables()) {
-        final URI url = new URI("${getFullLocalApiServerUrl()}/snapshot/${java.net.URLEncoder.encode(snappable, "UTF-8")}?access_token=${state.accessToken}")
+        final URI url = new URI("${getFullLocalApiServerUrl()}/snapshot/${URLEncoder.encode(snappable, "UTF-8")}?access_token=${state.accessToken}")
         paragraph("""<u><b>${getChildDeviceInternal(snappable).label}:</b></u>\n<b>URL</b>: $url\n<img height="180" width="320" src="${url.path}?${url.query}" alt="Snapshot" />""")
       }
     }
@@ -397,7 +397,7 @@ def deviceDiscovery() {
 }
 
 void donationPageSection() {
-  section() {
+  section {
     paragraph "<div style='color:#1A77C9;text-align:center'>Donations greatly appreciated!</a><br><a href='https://paypal.me/cdmorse' target='_blank'><b>Paypal</b></a></div>"
   }
 }
@@ -431,7 +431,7 @@ Map getAvailableDevicesOptions() {
   Map map = [:]
   for (final device in state.devices) {
     final String value = device.name
-    final String key = device.id.toString()
+    final String key = device.id
     map[key] = map[key] ? map[key] + " || " + value : value
   }
   return map
@@ -511,7 +511,7 @@ def addDevices() {
   String sectionText = ""
   boolean hubAdded = false
 
-  HashSet<Integer> enabledHubDoorbotIds = []
+  Set<Integer> enabledHubDoorbotIds = [].toSet()
 
   selectedDevices.each { id ->
     def selectedDevice = devices.find { it.id.toString() == id.toString() }
@@ -644,28 +644,28 @@ void configureSnapshotPolling() {
       final String secString = currSec > altSec ? "${altSec},${currSec}" : "${currSec},${altSec}"
       schedule("${secString} * * * * ? *", updateSnapshots)
     }
-    else if(interval == 60) {
+    else if (interval == 60) {
       schedule("${currSec} * * * * ? *", updateSnapshots)
     }
-    else if(interval == 90) {
+    else if (interval == 90) {
       final Integer startMin = currMin % 3 // Minute to start job
       final Integer offset = currSec >= 30 ? 1 : 0
       schedule("${currSec} ${startMin}/3 * * * ? *", updateSnapshots)
       schedule("${altSec} ${(startMin + 1 + offset) % 3}/3 * * * ? *", updateSnapshots, [overwrite: false])
     }
-    else if(interval in 120..1800) { // Minutes
-        final Integer mins = interval / 60
-        schedule("${currSec} ${currMin % mins}/${mins} * * * ? *", updateSnapshots)
+    else if (interval in 120..1800) { // Minutes
+      final Integer mins = interval / 60
+      schedule("${currSec} ${currMin % mins}/${mins} * * * ? *", updateSnapshots)
     }
-    else if(interval in 3600..43200) { // Hours
-        final Integer hours = interval / 60 / 60
-        schedule("${currSec} ${currMin} 0/${hours} * * ? *", updateSnapshots)
+    else if (interval in 3600..43200) { // Hours
+      final Integer hours = interval / 60 / 60
+      schedule("${currSec} ${currMin} 0/${hours} * * ? *", updateSnapshots)
     }
-    else if(interval == 86400) { // Hours
-        schedule("${currSec} ${currMin} ${getRandomInteger(24)} * * ? *", updateSnapshots)
+    else if (interval == 86400) { // Day
+      schedule("${currSec} ${currMin} ${getRandomInteger(24)} * * ? *", updateSnapshots)
     }
     else {
-      log.error ("configureSnapshotPolling Unsupported interval ${interval}")
+      log.error("configureSnapshotPolling Unsupported interval ${interval}")
     }
   }
 }
@@ -683,10 +683,10 @@ void prepSnapshots() {
   configureSnapshotPolling()
 }
 void prepSnapshotsAlt() { prepSnapshots() }
-void getSnapshots() {} // Don't need to do anything because this was only called with runIn
+void getSnapshots() { } // Don't need to do anything because this was only called with runIn
 
 def serveSnapshot() {
-  final String ringDeviceId = java.net.URLDecoder.decode(params.ringDeviceId, "UTF-8")
+  final String ringDeviceId = URLDecoder.decode(params.ringDeviceId, "UTF-8")
 
   logDebug "serveSnapshot(${ringDeviceId})"
 
@@ -702,7 +702,7 @@ def serveSnapshot() {
     logTrace "Default to missing image for ${ringDeviceId}"
     strImg = MISSING_IMG
   } else {
-    strImg = "data:image/png;base64,${img.encodeBase64().toString()}"
+    strImg = 'data:image/png;base64,' + img.encodeBase64()
   }
 
   render contentType: "image/svg+xml", data: """<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" height="360" width="640"><image width="640" height="360" xlink:href="${strImg}"/></svg>""", status: 200
@@ -719,7 +719,7 @@ void snapshotOption(String cam, value) {
 }
 
 Set<String> getEnabledSnappables() {
-  return state.snappables?.findAll( { it.value })?.keySet()
+  return state.snappables?.findAll { it.value }?.keySet()
 }
 
 @Field final static Map snapshotIntervals = [
@@ -894,7 +894,7 @@ boolean apiRequestAuthCommon(final String funcName, final Map params) {
       state.authResponse = "$funcName HTTP 429 error. Sending too many requests. Try again later"
     }
     else {
-      logDebug "$funcName HTTP ${status} error. Exception: ${ex}. ${resp.getData()}"
+      logDebug "$funcName HTTP ${status} error. Exception: ${ex}. ${body}"
 
       if (body instanceof Map) {
         String errorDescription = body?.error_description
@@ -917,8 +917,8 @@ boolean apiRequestAuthCommon(final String funcName, final Map params) {
     log.warn(state.authResponse)
   }
   catch (ConnectTimeoutException | HttpHostConnectException | SSLPeerUnverifiedException | SSLHandshakeException | \
-         SocketTimeoutException | NoRouteToHostException | UnknownHostException | ResponseParseException e) {
-    state.authResponse = "$funcName. Authentication failed because of a transient HTTP error. ${e}"
+         SocketException | SocketTimeoutException | NoRouteToHostException | UnknownHostException | ResponseParseException e) {
+    state.authResponse = "$funcName. Authentication failed because of a transient error. ${e}"
     log.warn(state.authResponse)
   }
 
@@ -969,7 +969,7 @@ boolean apiRequestAuthSession() {
     ]
   ])
 
-  return apiRequestSyncCommon("apiRequestAuthSession", false, params, { Map reqParams ->
+  return apiRequestSyncCommon("apiRequestAuthSession", false, params) { Map reqParams ->
     boolean retval = false
     httpPost(reqParams) { resp ->
       def body = resp.data
@@ -979,7 +979,8 @@ boolean apiRequestAuthSession() {
       retval = true
     }
     return retval
-  })
+  }
+  return true
 }
 
 // Makes a ring api request for location data
@@ -988,12 +989,12 @@ List apiRequestDevices() {
 
   Map params = makeClientsApiParams('/ring_devices', [query: [api_version: 11]])
 
-  return apiRequestSyncCommon("apiRequestDevices", false, params, { Map reqParams ->
+  return apiRequestSyncCommon("apiRequestDevices", false, params) { Map reqParams ->
     List retval = null
     httpGet(reqParams) { resp ->
       def body = resp.data
 
-      logTrace "apiRequestDevice succeeded, body: ${JsonOutput.toJson(body)}"
+      logTrace "apiRequestDevices succeeded, body: ${JsonOutput.toJson(body)}"
 
       // @note Intenionally leaving out "beams" because they are handled by the beams bridge device
       retval = []
@@ -1002,7 +1003,7 @@ List apiRequestDevices() {
       }
     }
     return retval
-  })
+  }
 }
 
 /**
@@ -1019,16 +1020,16 @@ void apiRequestDeviceRefresh(final String dni) {
 
   Map params = makeClientsApiParams('/ring_devices/' + getRingDeviceId(dni), [query: [api_version: 11]])
 
-  apiRequestAsyncCommon("apiRequestDeviceRefresh", "Get", params, false, { resp ->
+  apiRequestAsyncCommon("apiRequestDeviceRefresh", "Get", params, false) { resp ->
     def body = resp.getJson()
     logTrace "apiRequestDeviceRefresh for ${dni} succeeded, body: ${JsonOutput.toJson(body)}"
     def d = getChildDevice(dni)
-    if (!d) {
-      log.error "apiRequestDeviceRefresh cannot get child device with dni ${dni}"
-    } else {
+    if (d) {
       d.handleRefresh(body)
+    } else {
+      log.error "apiRequestDeviceRefresh cannot get child device with dni ${dni}"
     }
-  })
+  }
 }
 
 /**
@@ -1044,17 +1045,17 @@ void apiRequestDeviceControl(final String dni, final String kind, final String a
   Map params = makeClientsApiParams('/' + kind + '/' + getRingDeviceId(dni) + '/' + action,
                                     [contentType: TEXT, requestContentType: JSON, query: query])
 
-  apiRequestAsyncCommon("apiRequestDeviceControl", "Post", params,false, { resp ->
+  apiRequestAsyncCommon("apiRequestDeviceControl", "Post", params, false) { resp ->
     logTrace "apiRequestDeviceControl ${kind} ${action} for ${dni} succeeded"
 
     def body = resp.getData() ? resp.getJson() : null
     def d = getChildDevice(dni)
-    if (!d) {
-      log.error "apiRequestDeviceControl ${kind}.${action} (${query}) cannot get child device with dni ${dni}"
-    } else {
+    if (d) {
       d.handleDeviceControl(action, body, query)
+    } else {
+      log.error "apiRequestDeviceControl ${kind}.${action} (${query}) cannot get child device with dni ${dni}"
     }
-  })
+  }
 }
 
 /**
@@ -1069,17 +1070,17 @@ void apiRequestDeviceSet(final String dni, final String kind, final String actio
   Map params = makeClientsApiParams('/' + kind + '/' + getRingDeviceId(dni) + (action ? "/${action}" : ""),
                                     [contentType: TEXT, requestContentType: JSON, query: query])
 
-  apiRequestAsyncCommon("apiRequestDeviceSet", "Put", params, false, { resp ->
+  apiRequestAsyncCommon("apiRequestDeviceSet", "Put", params, false) { resp ->
     logTrace "apiRequestDeviceSet ${kind} ${action} for ${dni} succeeded"
 
     def body = resp.getData() ? resp.getJson() : null
     def d = getChildDevice(dni)
-    if (!d) {
-      log.error "apiRequestDeviceSet ${kind}.${action} cannot get child device with dni ${dni}"
-    } else {
+    if (d) {
       d.handleDeviceSet(action, body, query)
+    } else {
+      log.error "apiRequestDeviceSet ${kind}.${action} cannot get child device with dni ${dni}"
     }
-  })
+  }
 }
 
 /**
@@ -1093,18 +1094,18 @@ void apiRequestDeviceHealth(final String dni, final String kind) {
   Map params = makeClientsApiParams('/' + kind + '/' + getRingDeviceId(dni) + '/health',
                                     [contentType: TEXT, requestContentType: JSON])
 
-  apiRequestAsyncCommon("apiRequestDeviceHealth", "Get", params, false, { resp ->
+  apiRequestAsyncCommon("apiRequestDeviceHealth", "Get", params, false) { resp ->
     def body = resp.getData() ? resp.getJson() : null
 
     logTrace "apiRequestDeviceHealth ${kind} for ${dni} succeeded, body: ${JsonOutput.toJson(body)}"
 
     def d = getChildDevice(dni)
-    if (!d) {
-      log.error "apiRequestDeviceHealth ${kind} cannot get child device with dni ${dni}"
-    } else {
+    if (d) {
       d.handleHealth(body)
+    } else {
+      log.error "apiRequestDeviceHealth ${kind} cannot get child device with dni ${dni}"
     }
-  })
+  }
 }
 
 /**
@@ -1117,21 +1118,19 @@ void apiRequestDings() {
 
   Map params = makeClientsApiParams('/dings/active', [query: [api_version: 11]])
 
-  apiRequestAsyncCommon("apiRequestDings", "Get", params,false, { resp ->
+  apiRequestAsyncCommon("apiRequestDings", "Get", params, false) { resp ->
     def body = resp.getJson()
     logTrace "apiRequestDings succeeded, body: ${JsonOutput.toJson(body)}"
 
     for (final Map dingInfo in body) {
-      final String deviceId = dingInfo.doorbot_id.toString()
+      final String deviceId = dingInfo.doorbot_id
 
       if (state.dingables.contains(deviceId)) {
         logTrace "apiRequestDings: Got ding for ${getFormattedDNI(deviceId)}"
 
         def d = getChildDeviceInternal(deviceId)
 
-        if (!d) {
-          log.error "apiRequestDings Received ding for device '${deviceId}' that does not exist"
-        } else {
+        if (d) {
           if (dingInfo.kind == "motion") {
             d.handleMotion(dingInfo)
           } else if (dingInfo.kind == "ding") {
@@ -1139,10 +1138,12 @@ void apiRequestDings() {
           } else {
             log.warn "apiRequestDings: Received unsupported kind '${dingInfo.kind}' for device ${deviceId}"
           }
+        } else {
+          log.error "apiRequestDings Received ding for device '${deviceId}' that does not exist"
         }
       }
     }
-  })
+  }
 }
 
 // Makes a ring api request for location data
@@ -1156,7 +1157,7 @@ List apiRequestLocations() {
 
   addHeadersToHttpRequest(params)
 
-  return apiRequestSyncCommon("apiRequestLocations", false, params, { Map reqParams ->
+  return apiRequestSyncCommon("apiRequestLocations", false, params) { Map reqParams ->
     List retval = null
     httpGet(reqParams) { resp ->
       def body = resp.getData()
@@ -1164,7 +1165,7 @@ List apiRequestLocations() {
       retval = body.user_locations
     }
     return retval
-  })
+  }
 }
 
 /**
@@ -1178,17 +1179,17 @@ void apiRequestModeGet(final String dni) {
   Map params = makeAppApiParams("/mode/location/${getSelectedLocation()?.id}",
     [query: [api_version: 11]], [hardware_id: true])
 
-  apiRequestAsyncCommon("apiRequestModeGet", "Get", params, false, { resp ->
+  apiRequestAsyncCommon("apiRequestModeGet", "Get", params, false) { resp ->
     def body = resp.getData() ? resp.getJson() : null
     logTrace "apiRequestModeGet succeeded, body: ${JsonOutput.toJson(body)}"
 
     def d = getChildDevice(dni)
-    if (!d) {
-      log.error "apiRequestModeGet cannot get child device with dni ${dni}"
-    } else {
+    if (d) {
       d.updateMode(body.mode)
+    } else {
+      log.error "apiRequestModeGet cannot get child device with dni ${dni}"
     }
-  })
+  }
 }
 
 /**
@@ -1204,17 +1205,17 @@ void apiRequestModeSet(final String dni, final String mode) {
     [body: [mode: mode, readOnly: true], query: [api_version: 11]],
     [hardware_id: true])
 
-  apiRequestAsyncCommon("apiRequestModeSet", "Post", params, false, { resp ->
+  apiRequestAsyncCommon("apiRequestModeSet", "Post", params, false) { resp ->
     def body = resp.getData() ? resp.getJson() : null
     logTrace "apiRequestModeSet for mode ${mode} succeeded, body: ${JsonOutput.toJson(body)}"
 
     def d = getChildDevice(dni)
-    if (!d) {
-      log.error "apiRequestModeSet cannot get child device with dni ${dni}"
-    } else {
+    if (d) {
       d.updateMode(body.mode)
+    } else {
+      log.error "apiRequestModeSet cannot get child device with dni ${dni}"
     }
-  })
+  }
 }
 
 /**
@@ -1228,17 +1229,17 @@ void apiRequestTickets(final String dni) {
 
   addHeadersToHttpRequest(params)
 
-  apiRequestAsyncCommon("apiRequestTickets", "Get", params, false, { resp ->
+  apiRequestAsyncCommon("apiRequestTickets", "Get", params, false) { resp ->
     def body = resp.getData() ? resp.getJson() : null
     logTrace "apiRequestTickets succeeded, body: ${JsonOutput.toJson(body)}"
 
     def d = getChildDevice(dni)
-    if (!d) {
-      log.error "apiRequestTickets cannot get child device with dni ${dni}"
-    } else {
+    if (d) {
       d.updateTickets(body)
+    } else {
+      log.error "apiRequestTickets cannot get child device with dni ${dni}"
     }
-  })
+  }
 }
 
 /**
@@ -1260,7 +1261,7 @@ void apiRequestSnapshotImages(final Map data) {
     addHeadersToHttpRequest(params, [hardware_id: true, extra: ["Accept": "application.vnd.api.v11+json"]])
 
     // Would like to do this async, but for some reason the state won't get updated when async
-    apiRequestSyncCommon("apiRequestSnapshotImages", false, params, { Map reqParams ->
+    apiRequestSyncCommon("apiRequestSnapshotImages", false, params) { Map reqParams ->
       httpGet(reqParams) { resp ->
         logTrace "apiRequestSnapshotImages succeeded for ${localDoorbotId}"
         if (resp.getData()) {
@@ -1269,7 +1270,7 @@ void apiRequestSnapshotImages(final Map data) {
           state.snapshots[getFormattedDNI(localDoorbotId)] = retval
         }
       }
-    })
+    }
   }
 }
 
@@ -1285,7 +1286,7 @@ void apiRequestSnapshotTimestamps(List doorbotIds) {
                                     [hardware_id: true, extra: ["Accept": "application.vnd.api.v11+json"]])
 
   // Would like to do this async, but for some reason the state won't get updated when async
-  apiRequestSyncCommon("apiRequestSnapshotTimestamps", false, params, { Map reqParams ->
+  apiRequestSyncCommon("apiRequestSnapshotTimestamps", false, params) { Map reqParams ->
     httpPost(reqParams) { resp ->
       def body = resp.getData()
       logTrace "apiRequestSnapshotTimestamps for ${doorbotIds} succeeded, body: ${JsonOutput.toJson(body)}"
@@ -1293,7 +1294,7 @@ void apiRequestSnapshotTimestamps(List doorbotIds) {
       // @todo Consider comparing new timestamps to old timestamps. Could use this to avoid getting a snapshot when there is no update
       state.lastSnapshotTimestamps = body.timestamps
 
-      final List returnedDoorbotIds = body.timestamps.collect { it.doorbot_id }
+      final List returnedDoorbotIds = body.timestamps*.doorbot_id
 
       logTrace "apiRequestSnapshotTimestamps returned these doorbots: ${returnedDoorbotIds}"
       final Set nonReturnedDoorbotIds = doorbotIds.toSet() - returnedDoorbotIds.toSet()
@@ -1304,7 +1305,7 @@ void apiRequestSnapshotTimestamps(List doorbotIds) {
 
       runIn(15, apiRequestSnapshotImages, [data: [doorbotIds: returnedDoorbotIds]])
     }
-  })
+  }
 }
 
 /**
@@ -1354,8 +1355,8 @@ Object apiRequestSyncCommon(final String functionName, boolean reauthCall, Map p
     log.error "$functionName HTTP error. Exception: ${ex.getMessage()}. ${resp.getData()}"
   }
   catch (ConnectTimeoutException | HttpHostConnectException | SSLPeerUnverifiedException | SSLHandshakeException | \
-         SocketTimeoutException | NoRouteToHostException | UnknownHostException | ResponseParseException e) {
-    log.warn "${functionName}. Failed because of a transient HTTP error. ${e}"
+         SocketException | SocketTimeoutException | NoRouteToHostException | UnknownHostException | ResponseParseException e) {
+    log.warn "${functionName}. Failed because of a transient error. ${e}"
   } catch (Exception e) {
     log.error "${functionName}. Caught an unhandled exception. ${e}"
   }
@@ -1497,6 +1498,7 @@ boolean isClientDeviceNotFoundHttpError(errorData, final Integer status, final S
         logDebug("$functionName Got a 404 error '${errorJson.error}'. Retrying request after a apiRequestAuthSession")
         return true
       }
+    /* groovylint-disable-next-line EmptyCatchBlock */
     } catch (Exception e) {
     }
   }
@@ -1612,7 +1614,7 @@ def getAPIDevice(Map location = null) {
   }
 
   if (location == null) {
-    log.error ("getAPIDevice: No location defined")
+    log.error("getAPIDevice: No location defined")
     return null
   }
 
@@ -1652,20 +1654,20 @@ Map getSelectedLocation() {
   return loc ? [id: loc.key, name: loc.value] : null
 }
 
-private logInfo(msg) {
-  if (descriptionTextEnable) log.info msg
+void logInfo(msg) {
+  if (descriptionTextEnable) { log.info msg }
 }
 
-def logDebug(msg) {
-  if (logEnable) log.debug msg
+void logDebug(msg) {
+  if (logEnable) { log.debug msg }
 }
 
-def logTrace(msg) {
-  if (traceLogEnable) log.trace msg
+void logTrace(msg) {
+  if (traceLogEnable) { log.trace msg }
 }
 
 String getFormattedDNI(final id) {
-  return 'RING||' + id.toString()
+  return 'RING||' + id
 }
 
 String getRingDeviceId(String id) {
