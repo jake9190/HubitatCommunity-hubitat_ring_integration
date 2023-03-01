@@ -23,12 +23,13 @@ metadata {
     capability "Refresh"
     capability "Sensor"
     capability "Switch"
+    capability 'Health Check'
 
     attribute "firmware", "string"
     attribute "rssi", "number"
     attribute "wifi", "string"
     
-    attribute "connection", "string"
+    attribute 'healthStatus', 'enum', [ 'unknown', 'offline', 'online' ]
 
     command "alarmOff"
     command "getDings"
@@ -82,9 +83,8 @@ def pollDeviceStatus() {
 def scheduleDevicePolling() {
   unschedule(pollDeviceStatus)
   if (deviceStatusPollingEnable) {
-        def Second = (new Date().format("s") as int)
-        Second = ((Second + 5) % 60)
-        schedule( "${ Second } 0/30 * ? * *", "refresh" )
+      Random rnd = new Random()
+      schedule( "${rnd.nextInt(59)} ${rnd.nextInt(9)}/10 * ? * *", "pollDeviceStatus" )
   }
 }
 
@@ -222,7 +222,7 @@ void handleMotion(final Map msg) {
 
 void handleRefresh(final Map msg) {
   if (msg.alerts?.connection != null) {
-    checkChanged("connection", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
+    checkChanged("healthStatus", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
   }
   
   if (msg.led_status) {
@@ -235,10 +235,6 @@ void handleRefresh(final Map msg) {
     if (secondsRemaining > 0) {
       runIn(secondsRemaining + 1, refresh)
     }
-  }
-
-  if (msg.is_sidewalk_gateway) {
-    log.warn("Your device is being used as an Amazon sidewalk device.")
   }
 
   if (msg.health) {
