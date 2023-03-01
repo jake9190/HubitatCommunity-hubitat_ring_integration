@@ -27,9 +27,12 @@ metadata {
     capability "Refresh"
     capability "Polling"
     capability "Tone"
+    capability 'Health Check'
 
     attribute "rssi", "number"
     attribute "wifi", "string"
+    
+    attribute 'healthStatus', 'enum', [ 'unknown', 'offline', 'online' ]
 
     command "playDing"
     command "playMotion"
@@ -201,6 +204,10 @@ void handleHealth(final Map msg) {
 }
 
 void handleRefresh(final Map msg) {
+  if (msg.alerts?.connection != null) {
+    checkChanged("healthStatus", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
+  }
+    
   if (msg.settings?.volume != null) {
     updateVolumeInternal(msg.settings.volume)
   }
