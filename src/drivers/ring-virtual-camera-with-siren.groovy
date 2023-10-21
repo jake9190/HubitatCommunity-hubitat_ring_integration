@@ -36,11 +36,11 @@ metadata {
   }
 
   preferences {
+    input name: "deviceStatusPollingEnable", type: "bool", title: "Enable polling for device status", defaultValue: true
     input name: "snapshotPolling", type: "bool", title: "Enable polling for thumbnail snapshots on this device", defaultValue: false
     input name: "descriptionTextEnable", type: "bool", title: "Enable descriptionText logging", defaultValue: false
     input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
     input name: "traceLogEnable", type: "bool", title: "Enable trace logging", defaultValue: false
-    input name: "deviceStatusPollingEnable", type: "bool", title: "Enable polling for device status", defaultValue: true
   }
 }
 
