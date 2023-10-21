@@ -23,12 +23,13 @@ metadata {
     capability "Sensor"
     capability "Switch"
     capability "Refresh"
+    capability "Health Check"
 
     attribute "firmware", "string"
     attribute "battery2", "number"
     attribute "rssi", "number"
     attribute "wifi", "string"
-    attribute 'healthStatus', 'enum', [ 'unknown', 'offline', 'online' ]
+    attribute "healthStatus", "enum", [ "unknown", "offline", "online" ]
 
     command "flash"
     command "getDings"
