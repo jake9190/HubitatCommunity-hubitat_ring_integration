@@ -24,11 +24,12 @@ metadata {
     capability "PushableButton"
     capability "Refresh"
     capability "Sensor"
+    capability "Health Check"
 
     attribute "firmware", "string"
     attribute "rssi", "number"
     attribute "wifi", "string"
-    attribute 'healthStatus', 'enum', [ 'unknown', 'offline', 'online' ]
+    attribute "healthStatus", "enum", [ "unknown", "offline", "online" ]
 
     command "getDings"
     command "snoozeMotionAlerts", [
