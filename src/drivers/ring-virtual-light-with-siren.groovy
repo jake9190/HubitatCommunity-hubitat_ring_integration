@@ -23,11 +23,12 @@ metadata {
     capability "Refresh"
     capability "Sensor"
     capability "Switch"
+    capability "Health Check"
 
     attribute "firmware", "string"
     attribute "rssi", "number"
     attribute "wifi", "string"
-    attribute 'healthStatus', 'enum', [ 'unknown', 'offline', 'online' ]
+    attribute "healthStatus", "enum", [ "unknown", "offline", "online" ]
 
     command "alarmOff"
     command "getDings"
