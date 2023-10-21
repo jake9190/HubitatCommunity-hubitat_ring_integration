@@ -23,13 +23,11 @@ metadata {
     capability "PushableButton"
     capability "Refresh"
     capability "Sensor"
-    capability 'Health Check'
 
     attribute "firmware", "string"
     attribute "rssi", "number"
     attribute "wifi", "string"
-      
-    attribute 'healthStatus', 'enum', [ 'unknown', 'offline', 'online' ]
+    attribute "connection", "string"
 
     command "getDings"
   }
@@ -58,7 +56,7 @@ void logTrace(msg) {
 def updated() {
   checkChanged("numberOfButtons", 1)
   parent.snapshotOption(device.deviceNetworkId, snapshotPolling)
-  pollDeviceStatus()
+  scheduleDevicePolling()
 }
 
 def parse(String description) {
@@ -77,19 +75,19 @@ def refresh() {
   logDebug "refresh()"
   parent.apiRequestDeviceRefresh(device.deviceNetworkId)
   parent.apiRequestDeviceHealth(device.deviceNetworkId, "doorbots")
-  scheduleDevicePolling()
 }
 
-def pollDeviceStatus() {
-  logTrace "pollDeviceStatus()"
-  refresh()
+def installed() {
+  scheduleDevicePolling()
 }
 
 def scheduleDevicePolling() {
   unschedule(pollDeviceStatus)
+  // Schedule at a random second starting at the next minute
+  def nextMinute = ((new Date().format( "m" ) as int) + 1) % 60
+  Random rnd = new Random()
   if (deviceStatusPollingEnable) {
-      Random rnd = new Random()
-      schedule( "${rnd.nextInt(59)} ${rnd.nextInt(9)}/10 * ? * *", "pollDeviceStatus" )
+      schedule( "${rnd.nextInt(59)} ${nextMinute}/30 * ? * *", "refresh" )
   }
 }
 
@@ -127,10 +125,13 @@ void handleMotion(final Map msg) {
 }
 
 void handleRefresh(final Map msg) {
-  if (msg.alerts?.connection != null) {
-    checkChanged("healthStatus", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
+  if (msg?.alerts?.connection != null) {
+    checkChanged("connection", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
   }
-  
+  else {
+    log.warn("No connection information found in response")
+  }
+    
   if (!["jbox_v1", "lpd_v1", "lpd_v2"].contains(device.getDataValue("kind"))) {
     if (msg.battery_life != null) {
       checkChanged("battery", msg.battery_life, '%')
