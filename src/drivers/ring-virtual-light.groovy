@@ -28,7 +28,7 @@ metadata {
     attribute "battery2", "number"
     attribute "rssi", "number"
     attribute "wifi", "string"
-    attribute "connection", "string"
+    attribute 'healthStatus', 'enum', [ 'unknown', 'offline', 'online' ]
 
     command "flash"
     command "getDings"
@@ -201,7 +201,7 @@ void handleMotion(final Map msg) {
 
 void handleRefresh(final Map msg) {  
   if (msg?.alerts?.connection != null) {
-    checkChanged("connection", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
+    checkChanged("healthStatus", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
   }
   else {
     log.warn("No connection information found in response")
