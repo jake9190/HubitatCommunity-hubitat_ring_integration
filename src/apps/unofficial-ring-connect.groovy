@@ -1043,7 +1043,7 @@ void apiRequestDeviceRefresh(final String dni) {
  * @param query Action to perform on device ([kind: "motion"], etc)
  */
 void apiRequestDeviceControl(final String dni, final String kind, final String action, final Map query) {
-  logTrace("apiRequestDeviceControl(${dni}, ${kind}, ${action}, ${query})")
+  logInfo("apiRequestDeviceControl(${dni}, ${kind}, ${action}, ${query})")
 
   Map params = makeClientsApiParams('/' + kind + '/' + getRingDeviceId(dni) + '/' + action,
                                     [contentType: TEXT, requestContentType: JSON, query: query])
@@ -1074,6 +1074,31 @@ void apiRequestDeviceSet(final String dni, final String kind, final String actio
                                     [contentType: TEXT, requestContentType: JSON, query: query])
 
   apiRequestAsyncCommon("apiRequestDeviceSet", "Put", params, false) { resp ->
+    logTrace "apiRequestDeviceSet ${kind} ${action} for ${dni} succeeded"
+
+    def body = resp.getData() ? resp.getJson() : null
+    ChildDeviceWrapper d = getChildDevice(dni)
+    if (d) {
+      d.handleDeviceSet(action, body, query)
+    } else {
+      log.error "apiRequestDeviceSet ${kind}.${action} cannot get child device with dni ${dni}"
+    }
+  }
+}
+
+/**
+ * Makes a ring api request to set a setting for a device
+ * @param dni DNI of device to refresh
+ * @param kind Kind of device ("doorbots", etc.)
+ * @param action Action to perform on device ("floodlight_light_off", etc)
+ */
+void apiRequestDeviceApiSet(final String dni, final String kind, final String action = null, final Map query = null) {
+  logTrace("apiRequestDeviceSet(${dni}, ${kind}, ${action}, ${query})")
+
+  Map params = makeDeviceApiParams('/' + kind + '/' + getRingDeviceId(dni) + (action ? "/${action}" : ""),
+                                    [contentType: TEXT, requestContentType: JSON, query: query])
+
+  apiRequestAsyncCommon("apiRequestDeviceSet", "Patch", params, false) { resp ->
     logTrace "apiRequestDeviceSet ${kind} ${action} for ${dni} succeeded"
 
     def body = resp.getData() ? resp.getJson() : null
@@ -1541,6 +1566,19 @@ Map makeAppApiParams(final String urlSuffix, final Map args, final Map headerArg
 Map makeClientsApiParams(final String urlSuffix, final Map args, final Map headerArgs = [:]) {
   Map params = [
     uri: CLIENTS_API_BASE_URL + urlSuffix,
+    contentType: args.getOrDefault('contentType', JSON),
+  ]
+
+  params << args.subMap(['body', 'requestContentType', 'query'])
+
+  addHeadersToHttpRequest(params, headerArgs)
+
+  return params
+}
+
+Map makeDeviceApiParams(final String urlSuffix, final Map args, final Map headerArgs = [:]) {
+  Map params = [
+    uri: DEVICES_API_BASE_URL + urlSuffix,
     contentType: args.getOrDefault('contentType', JSON),
   ]
 
