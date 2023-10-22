@@ -1043,7 +1043,7 @@ void apiRequestDeviceRefresh(final String dni) {
  * @param query Action to perform on device ([kind: "motion"], etc)
  */
 void apiRequestDeviceControl(final String dni, final String kind, final String action, final Map query) {
-  logInfo("apiRequestDeviceControl(${dni}, ${kind}, ${action}, ${query})")
+  logTrace("apiRequestDeviceControl(${dni}, ${kind}, ${action}, ${query})")
 
   Map params = makeClientsApiParams('/' + kind + '/' + getRingDeviceId(dni) + '/' + action,
                                     [contentType: TEXT, requestContentType: JSON, query: query])
