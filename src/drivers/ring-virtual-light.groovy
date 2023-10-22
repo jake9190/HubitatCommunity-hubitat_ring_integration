@@ -23,17 +23,20 @@ metadata {
     capability "Sensor"
     capability "Switch"
     capability "Refresh"
-    capability 'Health Check'
+    capability "Health Check"
 
     attribute "firmware", "string"
     attribute "battery2", "number"
     attribute "rssi", "number"
     attribute "wifi", "string"
-    
-    attribute 'healthStatus', 'enum', [ 'unknown', 'offline', 'online' ]
+    attribute "healthStatus", "enum", [ "unknown", "offline", "online" ]
 
     command "flash"
     command "getDings"
+    command "snoozeMotionAlerts", [
+        [name:"minutes", type:"NUMBER", description:"Number of minutes to snooze motion alerts for", constraints:["NUMBER"]] ]
+    command "setMotionActivatedLights", [
+        [name:"state", description:"Enable or disable lights on motion", type: "ENUM", constraints: ["enabled","disabled"]] ]
   }
 
   preferences {
@@ -76,7 +79,6 @@ def refresh() {
   logDebug "refresh()"
   parent.apiRequestDeviceRefresh(device.deviceNetworkId)
   parent.apiRequestDeviceHealth(device.deviceNetworkId, "doorbots")
-  scheduleDevicePolling()
 }
 
 def getDings() {
@@ -99,6 +101,16 @@ def pollLight() {
   }
 }
 
+def snoozeMotionAlerts(minutes = 60) {
+    parent.apiRequestDeviceControl(device.deviceNetworkId, "doorbots", "motion_snooze?time=${minutes}", null)
+}
+
+def setMotionActivatedLights(state) {
+    // This is backwards as it's manipulating "always snooze"
+    stateOfLight = state == "enabled" ? false : true
+    parent.apiRequestDeviceApiSet(device.deviceNetworkId, "devices", "settings", ["enable":stateOfLight,"light_snooze_settings":["always_on":stateOfLight]])
+}
+
 def updated() {
   setupPolling()
   parent.snapshotOption(device.deviceNetworkId, snapshotPolling)
@@ -106,19 +118,16 @@ def updated() {
 }
 
 def installed() {
-  pollDeviceStatus()
-}
-
-def pollDeviceStatus() {
-  logTrace "pollDeviceStatus()"
-  refresh()
+  scheduleDevicePolling()
 }
 
 def scheduleDevicePolling() {
   unschedule(pollDeviceStatus)
+  // Schedule at a random second starting at the next minute
+  def nextMinute = ((new Date().format( "m" ) as int) + 1) % 60
+  Random rnd = new Random()
   if (deviceStatusPollingEnable) {
-      Random rnd = new Random()
-      schedule( "${rnd.nextInt(59)} ${rnd.nextInt(9)}/10 * ? * *", "pollDeviceStatus" )
+      schedule( "${rnd.nextInt(59)} ${nextMinute}/30 * ? * *", "refresh" )
   }
 }
 
@@ -163,6 +172,9 @@ void handleDeviceSet(final String action, final Map msg, final Map query) {
   else if (action == "floodlight_light_off") {
     checkChanged("switch", "off")
   }
+  else if (action == "settings") {
+    logTrace("Updated setting: ${query}")
+  }
   else {
     log.error "handleDeviceSet unsupported action ${action}, msg=${msg}, query=${query}"
   }
@@ -191,11 +203,14 @@ void handleMotion(final Map msg) {
   }
 }
 
-void handleRefresh(final Map msg) {
-  if (msg.alerts?.connection != null) {
+void handleRefresh(final Map msg) {  
+  if (msg?.alerts?.connection != null) {
     checkChanged("healthStatus", msg.alerts.connection) // devices seem to be considered offline after 20 minutes
   }
-  
+  else {
+    checkChanged("healthStatus", "unknown")
+  }
+    
   if (!discardBatteryLevel) {
     if (msg.battery_life != null) {
       checkChanged("battery", msg.battery_life, "%")
