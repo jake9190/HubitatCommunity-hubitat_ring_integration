@@ -23,6 +23,7 @@ metadata {
     capability "Refresh"
     capability "Sensor"
     capability "Switch"
+    capability "SwitchLevel"
     capability "Health Check"
 
     attribute "firmware", "string"
@@ -138,6 +139,12 @@ def off() {
   switchOff()
 }
 
+def setLevel(level) {
+  // Translating SwitchLevel 0-100% to Ring brightness (1-10)
+  Integer brightnessLevel = Math.max(1, (level / 10) as Integer)
+  parent.apiRequestDeviceSet(device.deviceNetworkId, "doorbots", "light_intensity?doorbot%5Bsettings%5D%5Blight_intensity%5D=${brightnessLevel}")
+}
+
 def switchOff() {
   if (state.strobing) {
     unschedule()
@@ -209,6 +216,10 @@ void handleDeviceSet(final String action, final Map msg, final Map query) {
   else if (action == "settings") {
     log.trace("Updated setting: ${query}")
   }
+  else if (action.startsWith("light_intensity?doorbot%5Bsettings%5D%5Blight_intensity%5D=")) {
+    Integer brightnessLevel = (action.split('=')[1] as Integer) * 10
+    checkChanged("level", brightnessLevel)
+  }
   else {
     log.error "handleDeviceSet unsupported action ${action}, msg=${msg}, query=${query}"
   }
@@ -255,6 +266,11 @@ void handleRefresh(final Map msg) {
     if (secondsRemaining > 0) {
       runIn(secondsRemaining + 1, refresh)
     }
+  }
+
+  if (msg.settings?.floodlight_settings?.brightness != null) {
+    final Integer brightnessLevel = msg.settings.floodlight_settings.brightness * 10
+    checkChanged("level", brightnessLevel)
   }
 
   if (msg.is_sidewalk_gateway) {
