@@ -1692,7 +1692,7 @@ String getRingDeviceId(String id) {
 
 @Field final static String CLIENTS_API_BASE_URL = 'https://api.ring.com/clients_api'
 @Field final static String DEVICES_API_BASE_URL = 'https://api.ring.com/devices/v1'
-@Field final static String APP_API_BASE_URL = 'https://app.ring.com/api/v1'
+@Field final static String APP_API_BASE_URL = 'https://prd-api-us.prd.rings.solutions/api/v1'
 
 @Field final static String RING_API_DNI = "WS_API_DNI"
 @Field final static String JSON = 'application/json'
@@ -1745,8 +1745,11 @@ String getRingDeviceId(String id) {
   "spotlightw_v2",
   "stickup_cam_wired",
   "stickup_cam_elite",
+  "stickup_cam_longfin",
   "stickup_cam_lunar",
+  "stickup_cam_medusa",
   "stickup_cam_mini",
+  "stickup_cam_mini_v2",
   "stickup_cam_v3",
   "stickup_cam_v4",
   "stickup_cam",
@@ -1786,8 +1789,11 @@ String getRingDeviceId(String id) {
   "spotlightw_v2": [name: "Ring Spotlight Cam Wired", driver: "Ring Virtual Light with Siren"],
   "stickup_cam_wired": [name: "Ring Stick Up Cam Elite (2nd gen)", driver: "Ring Virtual Camera with Siren"],
   "stickup_cam_elite": [name: "Ring Stick Up Cam Elite (2nd gen)", driver: "Ring Virtual Camera with Siren"],
+  "stickup_cam_longfin": [name: "Ring Spotlight Cam Pro Battery", driver: "Ring Virtual Light"],
   "stickup_cam_lunar": [name: "Ring Stick Up Cam Battery/Solar (2nd gen)", driver: "Ring Virtual Camera with Siren"],
+  "stickup_cam_medusa": [name: "Ring Stick Up Cam Pro", driver: "Ring Virtual Camera with Siren"],
   "stickup_cam_mini": [name: "Ring Indoor Cam", driver: "Ring Virtual Camera with Siren"],
+  "stickup_cam_mini_v2": [name: "Ring Indoor Cam  (2nd gen)", driver: "Ring Virtual Camera with Siren"],
   "stickup_cam_v3": [name: "Ring Stick Up Cam (1st gen)", driver: "Ring Virtual Camera"],
   "stickup_cam_v4": [name: "Ring Spotlight Cam Battery/Solar", driver: "Ring Virtual Light"],
   "stickup_cam": [name: "Ring Stick Up Cam (1st gen)", driver: "Ring Virtual Camera"],
